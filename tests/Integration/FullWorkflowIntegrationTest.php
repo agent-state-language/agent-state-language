@@ -22,11 +22,15 @@ class FullWorkflowIntegrationTest extends TestCase
     public function testDocumentProcessingPipeline(): void
     {
         $registry = new AgentRegistry();
-        
+
         // Parser agent extracts structure
         $registry->register('DocumentParser', new class implements AgentInterface {
-            public function getName(): string { return 'DocumentParser'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'DocumentParser';
+            }
+            public function execute(array $params): array
+            {
                 $content = $params['content'] ?? '';
                 return [
                     'title' => 'Extracted Title',
@@ -36,11 +40,15 @@ class FullWorkflowIntegrationTest extends TestCase
                 ];
             }
         });
-        
+
         // Analyzer agent analyzes content
         $registry->register('ContentAnalyzer', new class implements AgentInterface {
-            public function getName(): string { return 'ContentAnalyzer'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'ContentAnalyzer';
+            }
+            public function execute(array $params): array
+            {
                 $wordCount = $params['wordCount'] ?? 0;
                 return [
                     'sentiment' => 'positive',
@@ -50,11 +58,15 @@ class FullWorkflowIntegrationTest extends TestCase
                 ];
             }
         });
-        
+
         // Summarizer generates summary
         $registry->register('Summarizer', new class implements AgentInterface {
-            public function getName(): string { return 'Summarizer'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'Summarizer';
+            }
+            public function execute(array $params): array
+            {
                 return [
                     'summary' => 'This document discusses technology and innovation.',
                     'keyPoints' => ['Point 1', 'Point 2', 'Point 3'],
@@ -131,17 +143,17 @@ class FullWorkflowIntegrationTest extends TestCase
         $engine = new WorkflowEngine($workflow, $registry);
         $result = $engine->run([
             'document' => 'This is a long document about technology and innovation. ' .
-                         str_repeat('More content here. ', 50)
+                str_repeat('More content here. ', 50)
         ]);
 
         $this->assertTrue($result->isSuccess());
-        
+
         $output = $result->getOutput();
         $this->assertEquals('Extracted Title', $output['title']);
         $this->assertEquals('positive', $output['sentiment']);
         $this->assertIsArray($output['keyPoints']);
         $this->assertCount(3, $output['keyPoints']);
-        
+
         // Verify execution trace
         $trace = $result->getTrace();
         $stateNames = array_filter(
@@ -159,10 +171,14 @@ class FullWorkflowIntegrationTest extends TestCase
     public function testParallelMultiAgentAnalysis(): void
     {
         $registry = new AgentRegistry();
-        
+
         $registry->register('SecurityScanner', new class implements AgentInterface {
-            public function getName(): string { return 'SecurityScanner'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'SecurityScanner';
+            }
+            public function execute(array $params): array
+            {
                 return [
                     'vulnerabilities' => [],
                     'score' => 95,
@@ -170,10 +186,14 @@ class FullWorkflowIntegrationTest extends TestCase
                 ];
             }
         });
-        
+
         $registry->register('PerformanceAnalyzer', new class implements AgentInterface {
-            public function getName(): string { return 'PerformanceAnalyzer'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'PerformanceAnalyzer';
+            }
+            public function execute(array $params): array
+            {
                 return [
                     'metrics' => ['cpu' => '23%', 'memory' => '45%'],
                     'score' => 88,
@@ -181,10 +201,14 @@ class FullWorkflowIntegrationTest extends TestCase
                 ];
             }
         });
-        
+
         $registry->register('StyleChecker', new class implements AgentInterface {
-            public function getName(): string { return 'StyleChecker'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'StyleChecker';
+            }
+            public function execute(array $params): array
+            {
                 return [
                     'issues' => ['Line too long at line 42'],
                     'score' => 92,
@@ -192,16 +216,20 @@ class FullWorkflowIntegrationTest extends TestCase
                 ];
             }
         });
-        
+
         $registry->register('ResultAggregator', new class implements AgentInterface {
-            public function getName(): string { return 'ResultAggregator'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'ResultAggregator';
+            }
+            public function execute(array $params): array
+            {
                 $security = $params['security'] ?? [];
                 $performance = $params['performance'] ?? [];
                 $style = $params['style'] ?? [];
-                
+
                 $avgScore = ($security['score'] + $performance['score'] + $style['score']) / 3;
-                
+
                 return [
                     'overallScore' => round($avgScore),
                     'allPassed' => $security['passed'] && $performance['passed'] && $style['passed'],
@@ -271,7 +299,7 @@ class FullWorkflowIntegrationTest extends TestCase
         $result = $engine->run(['code' => 'function test() { return true; }']);
 
         $this->assertTrue($result->isSuccess());
-        
+
         $output = $result->getOutput();
         $this->assertEquals(92, $output['overallScore']); // (95+88+92)/3 = 91.67 rounded
         $this->assertTrue($output['allPassed']);
@@ -283,13 +311,17 @@ class FullWorkflowIntegrationTest extends TestCase
     public function testMapStateIteration(): void
     {
         $registry = new AgentRegistry();
-        
+
         $registry->register('ItemProcessor', new class implements AgentInterface {
-            public function getName(): string { return 'ItemProcessor'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'ItemProcessor';
+            }
+            public function execute(array $params): array
+            {
                 $item = $params['item'] ?? '';
                 $index = $params['index'] ?? 0;
-                
+
                 return [
                     'processed' => strtoupper($item),
                     'index' => $index,
@@ -339,7 +371,7 @@ class FullWorkflowIntegrationTest extends TestCase
         ]);
 
         $this->assertTrue($result->isSuccess());
-        
+
         $output = $result->getOutput();
         $this->assertCount(3, $output['processedItems']);
         $this->assertEquals('APPLE', $output['processedItems'][0]['processed']);
@@ -353,15 +385,22 @@ class FullWorkflowIntegrationTest extends TestCase
     public function testErrorHandlingWithRetryAndCatch(): void
     {
         $attemptCount = 0;
-        
+
         $registry = new AgentRegistry();
-        
+
         // Agent that fails first 2 times, succeeds on 3rd
         $registry->register('FlakeyAgent', new class($attemptCount) implements AgentInterface {
             private int $attempts = 0;
-            public function __construct(int &$attempts) { $this->attempts = &$attempts; }
-            public function getName(): string { return 'FlakeyAgent'; }
-            public function execute(array $params): array {
+            public function __construct(int &$attempts)
+            {
+                $this->attempts = &$attempts;
+            }
+            public function getName(): string
+            {
+                return 'FlakeyAgent';
+            }
+            public function execute(array $params): array
+            {
                 $this->attempts++;
                 if ($this->attempts < 3) {
                     throw new AgentException('Temporary failure', 'FlakeyAgent', 'Agent.TemporaryError');
@@ -561,7 +600,7 @@ class FullWorkflowIntegrationTest extends TestCase
         ]);
 
         $this->assertTrue($result->isSuccess());
-        
+
         $output = $result->getOutput();
         $this->assertEquals('Hello, World!', $output['greeting']);
         $this->assertEquals(5, $output['itemCount']);
@@ -629,10 +668,14 @@ class FullWorkflowIntegrationTest extends TestCase
     public function testCostAndTokenTracking(): void
     {
         $registry = new AgentRegistry();
-        
+
         $registry->register('CostlyAgent', new class implements AgentInterface {
-            public function getName(): string { return 'CostlyAgent'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'CostlyAgent';
+            }
+            public function execute(array $params): array
+            {
                 return [
                     'result' => 'done',
                     '_tokens' => 1000,
@@ -670,7 +713,7 @@ class FullWorkflowIntegrationTest extends TestCase
         $result = $engine->run([]);
 
         $this->assertTrue($result->isSuccess());
-        
+
         // Should track tokens and cost from all 3 steps
         $this->assertEquals(3000, $result->getTokensUsed());
         $this->assertEqualsWithDelta(0.15, $result->getCost(), 0.001);
@@ -682,12 +725,16 @@ class FullWorkflowIntegrationTest extends TestCase
     public function testCustomerSupportRouting(): void
     {
         $registry = new AgentRegistry();
-        
+
         $registry->register('IntentClassifier', new class implements AgentInterface {
-            public function getName(): string { return 'IntentClassifier'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'IntentClassifier';
+            }
+            public function execute(array $params): array
+            {
                 $message = strtolower($params['message'] ?? '');
-                
+
                 if (str_contains($message, 'refund') || str_contains($message, 'money back')) {
                     return ['intent' => 'refund', 'confidence' => 0.95];
                 }
@@ -700,10 +747,14 @@ class FullWorkflowIntegrationTest extends TestCase
                 return ['intent' => 'general', 'confidence' => 0.70];
             }
         });
-        
+
         $registry->register('RefundHandler', new class implements AgentInterface {
-            public function getName(): string { return 'RefundHandler'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'RefundHandler';
+            }
+            public function execute(array $params): array
+            {
                 return [
                     'response' => 'I can help you with a refund. Please provide your order number.',
                     'action' => 'collect_order_id',
@@ -711,10 +762,14 @@ class FullWorkflowIntegrationTest extends TestCase
                 ];
             }
         });
-        
+
         $registry->register('TechnicalSupport', new class implements AgentInterface {
-            public function getName(): string { return 'TechnicalSupport'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'TechnicalSupport';
+            }
+            public function execute(array $params): array
+            {
                 return [
                     'response' => 'I understand you are having technical issues. Let me help troubleshoot.',
                     'action' => 'troubleshoot',
@@ -722,10 +777,14 @@ class FullWorkflowIntegrationTest extends TestCase
                 ];
             }
         });
-        
+
         $registry->register('GeneralSupport', new class implements AgentInterface {
-            public function getName(): string { return 'GeneralSupport'; }
-            public function execute(array $params): array {
+            public function getName(): string
+            {
+                return 'GeneralSupport';
+            }
+            public function execute(array $params): array
+            {
                 return [
                     'response' => 'How can I assist you today?',
                     'action' => 'gather_info',

@@ -785,13 +785,13 @@ public function accessibilityChecker(): ClaudeAgentAdapter
 
 ```php
 // Fast model for simple checks
-->withModel('claude-3-5-haiku-latest')
+->withModel('claude-haiku-4-5')
 
 // Powerful model for complex analysis
-->withModel('claude-sonnet-4-20250514')
+->withModel('claude-sonnet-4-5')
 
 // Most capable for synthesis
-->withModel('claude-opus-4-20250514')
+->withModel('claude-opus-4-5')
 ```
 
 ### Add Weighted Scoring
