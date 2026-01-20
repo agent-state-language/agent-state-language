@@ -6,7 +6,7 @@
     "MaxCost": "$3.00",
     "Fallback": {
       "When": "BudgetAt80Percent",
-      "UseModel": "claude-3-sonnet"
+      "UseModel": "claude-opus-4-5"
     }
   },
   "States": {

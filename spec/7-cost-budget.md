@@ -173,11 +173,11 @@ Switch to cheaper models when budget is constrained:
       "Cascade": [
         {
           "When": "BudgetAt60Percent",
-          "UseModel": "claude-3-sonnet"
+          "UseModel": "claude-sonnet-4-5"
         },
         {
           "When": "BudgetAt85Percent",
-          "UseModel": "claude-3-haiku"
+          "UseModel": "claude-haiku-4-5"
         },
         {
           "When": "BudgetAt95Percent",
@@ -258,8 +258,8 @@ After execution, cost breakdown is available:
       "generation": 2.42
     },
     "byModel": {
-      "claude-3-opus": 3.60,
-      "claude-3-sonnet": 0.92
+      "claude-opus-4-5": 3.60,
+      "claude-sonnet-4-5": 0.92
     }
   }
 }
@@ -329,7 +329,7 @@ Estimate costs before execution:
     "Type": "Pass",
     "Parameters": {
       "estimatedTokens.$": "States.TokenCount($.input)",
-      "estimatedCost.$": "States.EstimateCost($.input, 'claude-3-opus')"
+      "estimatedCost.$": "States.EstimateCost($.input, 'claude-opus-4-5')"
     },
     "Next": "CheckEstimate"
   },
@@ -387,8 +387,8 @@ Cache expensive operations:
     "OnExceed": "UseFallback",
     "Fallback": {
       "Cascade": [
-        { "When": "BudgetAt70Percent", "UseModel": "claude-3-sonnet" },
-        { "When": "BudgetAt90Percent", "UseModel": "claude-3-haiku" }
+        { "When": "BudgetAt70Percent", "UseModel": "claude-sonnet-4-5" },
+        { "When": "BudgetAt90Percent", "UseModel": "claude-haiku-4-5" }
       ]
     },
     "Alerts": [
@@ -402,7 +402,7 @@ Cache expensive operations:
       "Type": "Pass",
       "Parameters": {
         "inputTokens.$": "States.TokenCount($.query)",
-        "estimatedCost.$": "States.EstimateCost($.query, 'claude-3-opus')"
+        "estimatedCost.$": "States.EstimateCost($.query, 'claude-opus-4-5')"
       },
       "Next": "RouteByComplexity"
     },
@@ -470,9 +470,9 @@ Cache expensive operations:
 {
   "Fallback": {
     "Cascade": [
-      { "When": "BudgetAt60Percent", "UseModel": "sonnet" },
-      { "When": "BudgetAt85Percent", "UseModel": "haiku" }
-    ]
+      { "When": "BudgetAt60Percent", "UseModel": "claude-sonnet-4-5" },
+      { "When": "BudgetAt85Percent", "UseModel": "claude-haiku-4-5" }
+        ]
   }
 }
 ```

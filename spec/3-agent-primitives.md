@@ -300,8 +300,8 @@ For agents that can use different models:
     "Type": "Task",
     "Agent": "Generator",
     "Model": {
-      "Preferred": "claude-3-opus",
-      "Fallback": "claude-3-sonnet",
+      "Preferred": "claude-opus-4-5",
+      "Fallback": "claude-sonnet-4-5",
       "FallbackOn": ["BudgetExceeded", "RateLimitExceeded"]
     },
     "Next": "Deliver"
@@ -364,8 +364,8 @@ Control generation parameters:
       "Metrics": ["tokens", "latency"]
     },
     "Model": {
-      "Preferred": "claude-3-opus",
-      "Fallback": "claude-3-sonnet"
+      "Preferred": "claude-opus-4-5",
+      "Fallback": "claude-sonnet-4-5"
     },
     "Generation": {
       "Temperature": 0.3,

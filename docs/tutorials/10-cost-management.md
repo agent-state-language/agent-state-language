@@ -48,8 +48,8 @@ Learn how to control token usage and costs in your workflows.
     "MaxCost": "$10.00",
     "Fallback": {
       "Cascade": [
-        { "When": "BudgetAt60Percent", "UseModel": "claude-3-sonnet" },
-        { "When": "BudgetAt85Percent", "UseModel": "claude-3-haiku" },
+        { "When": "BudgetAt60Percent", "UseModel": "claude-sonnet-4-5" },
+        { "When": "BudgetAt85Percent", "UseModel": "claude-haiku-4-5" },
         { "When": "BudgetAt95Percent", "Action": "PauseAndNotify" }
       ]
     }
