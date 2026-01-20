@@ -82,10 +82,11 @@ class MapState extends AbstractState
         $totalCost = 0.0;
 
         foreach ($items as $index => $item) {
-            $context->setMapContext($index, $item);
+            $itemIndex = (int) $index;
+            $context->setMapContext($itemIndex, $item);
 
             // Prepare item input
-            $itemInput = $this->prepareItemInput($filteredInput, $item, $index, $context);
+            $itemInput = $this->prepareItemInput($filteredInput, $item, $itemIndex, $context);
 
             // Execute iterator workflow
             $itemResult = $this->executeIterator(

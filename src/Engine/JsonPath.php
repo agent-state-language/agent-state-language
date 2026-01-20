@@ -229,9 +229,12 @@ class JsonPath
         $resolved = [];
 
         foreach ($parameters as $key => $value) {
+            // Ensure key is a string for string operations
+            $keyStr = (string) $key;
+            
             // Check if key ends with .$ (dynamic value)
-            if (str_ends_with($key, '.$')) {
-                $actualKey = substr($key, 0, -2);
+            if (str_ends_with($keyStr, '.$')) {
+                $actualKey = substr($keyStr, 0, -2);
                 
                 if (is_string($value)) {
                     // Check for intrinsic functions

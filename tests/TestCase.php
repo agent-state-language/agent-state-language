@@ -56,7 +56,7 @@ abstract class TestCase extends BaseTestCase
     /**
      * Create a minimal valid workflow.
      */
-    protected function createMinimalWorkflow(string $stateName = 'Start', array $stateDefinition = null): array
+    protected function createMinimalWorkflow(string $stateName = 'Start', ?array $stateDefinition = null): array
     {
         return [
             'Version' => '1.0',
