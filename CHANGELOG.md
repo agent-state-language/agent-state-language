@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-21
+
+### Added
+- **Human-in-the-Loop Support**: Complete approval workflow implementation
+  - `ApprovalHandlerInterface` for custom approval integrations
+  - `ExecutionPausedException` for pausing workflows awaiting input
+  - Pause/resume support in `WorkflowEngine` and `WorkflowResult`
+- State lifecycle callbacks: `onStateEnter()` and `onStateExit()` hooks
+- Checkpoint data management for workflow resumption
+- `WorkflowEngine::fromArray()` factory method
+- `WorkflowResult::paused()` static constructor for paused workflows
+- Resume data support in execution context
+
+### Changed
+- `ApprovalState` now integrates with `ApprovalHandlerInterface` for real approval workflows
+- `WorkflowEngine::run()` now accepts optional `$startFromState` and `$resumeData` parameters
+- `WorkflowResult` constructor now includes pause-related parameters
+- Improved code style consistency across codebase
+
+### Fixed
+- Trailing whitespace and code formatting issues
+
 ## [0.2.1] - 2026-01-21
 
 ### Changed

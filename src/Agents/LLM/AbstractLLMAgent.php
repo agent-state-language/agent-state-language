@@ -17,7 +17,7 @@ abstract class AbstractLLMAgent implements LLMAgentInterface
     protected string $systemPrompt = '';
     protected float $temperature = 0.7;
     protected int $maxTokens = 4096;
-    
+
     /** @var array{input: int, output: int} */
     protected array $lastTokenUsage = ['input' => 0, 'output' => 0];
     protected float $lastCost = 0.0;
@@ -98,7 +98,7 @@ abstract class AbstractLLMAgent implements LLMAgentInterface
         if (isset($parameters['input'])) {
             return (string) $parameters['input'];
         }
-        
+
         // Otherwise, convert the entire parameters to a formatted message
         return json_encode($parameters, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
@@ -115,7 +115,7 @@ abstract class AbstractLLMAgent implements LLMAgentInterface
     protected function httpPost(string $url, array $payload, array $headers): array
     {
         $ch = curl_init($url);
-        
+
         if ($ch === false) {
             throw new AgentException('Failed to initialize cURL', $this->name, 'Agent.NetworkError');
         }
@@ -148,7 +148,7 @@ abstract class AbstractLLMAgent implements LLMAgentInterface
         }
 
         $decoded = json_decode($response, true);
-        
+
         if (json_last_error() !== JSON_ERROR_NONE) {
             throw new AgentException(
                 'Failed to parse API response: ' . json_last_error_msg(),

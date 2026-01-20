@@ -6,6 +6,7 @@ namespace AgentStateLanguage\States;
 
 use AgentStateLanguage\Engine\ExecutionContext;
 use AgentStateLanguage\Engine\JsonPath;
+use AgentStateLanguage\Exceptions\ExecutionPausedException;
 
 /**
  * Approval state for human-in-the-loop workflows.
@@ -29,22 +30,84 @@ class ApprovalState extends AbstractState
         // Get options
         $options = $this->definition['Options'] ?? ['approve', 'reject'];
 
-        // In a real implementation, this would:
-        // 1. Send notification to approvers
-        // 2. Wait for response (with timeout handling)
-        // 3. Return the decision
+        // Get editable fields if any
+        $editable = $this->definition['Editable'] ?? null;
 
-        // For now, we simulate auto-approval
-        // A real implementation would integrate with a task queue or callback system
-        $approval = $this->simulateApproval($options);
+        // Get timeout
+        $timeout = $this->definition['Timeout'] ?? '24h';
+
+        // Check if we're resuming with user input
+        $resumeData = $context->getResumeData();
+        if ($resumeData !== null && isset($resumeData['approval'])) {
+            // We have the approval decision from resume
+            $approval = $resumeData['approval'];
+            $approver = $resumeData['approver'] ?? 'user';
+            $comment = $resumeData['comment'] ?? null;
+            $editedContent = $resumeData['edited_content'] ?? null;
+        } elseif ($context->hasApprovalHandler()) {
+            // Use the approval handler
+            $handler = $context->getApprovalHandler();
+            assert($handler !== null); // Already checked via hasApprovalHandler()
+
+            $request = [
+                'prompt' => $prompt,
+                'options' => $options,
+                'state' => $this->name,
+                'timeout' => $timeout,
+                'input' => $filteredInput,
+            ];
+
+            if ($editable !== null) {
+                $request['editable'] = $editable['Fields'] ?? [];
+            }
+
+            $response = $handler->requestApproval($request);
+
+            if ($response === null) {
+                // Handler returned null, meaning we need to pause and wait
+                throw new ExecutionPausedException(
+                    stateName: $this->name,
+                    checkpointData: $input,
+                    pendingInput: [
+                        'type' => 'approval',
+                        'prompt' => $prompt,
+                        'options' => $options,
+                        'editable' => $editable,
+                        'timeout' => $timeout,
+                    ]
+                );
+            }
+
+            // Handler returned a decision
+            $approval = $response['approval'];
+            $approver = $response['approver'] ?? 'handler';
+            $comment = $response['comment'] ?? null;
+            $editedContent = $response['edited_content'] ?? null;
+        } else {
+            // No handler configured, simulate auto-approval
+            $approval = $this->simulateApproval($options);
+            $approver = 'system';
+            $comment = null;
+            $editedContent = null;
+        }
 
         // Build approval result
         $approvalResult = [
             'approval' => $approval,
-            'approver' => 'system',
+            'approver' => $approver,
             'timestamp' => date('c'),
             'prompt' => $prompt,
         ];
+
+        if ($comment !== null) {
+            $approvalResult['comment'] = $comment;
+        }
+
+        // Handle edited content
+        if ($editedContent !== null && $editable !== null) {
+            $resultPath = $editable['ResultPath'] ?? '$.editedContent';
+            $input = JsonPath::set($resultPath, $input, $editedContent);
+        }
 
         // Apply ResultPath
         $output = $this->applyResultPath($input, $approvalResult);
@@ -136,7 +199,7 @@ class ApprovalState extends AbstractState
 
     /**
      * Simulate an approval decision.
-     * In a real implementation, this would wait for human input.
+     * Used when no approval handler is configured.
      *
      * @param array<string> $options
      * @return string

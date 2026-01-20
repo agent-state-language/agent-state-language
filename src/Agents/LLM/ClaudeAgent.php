@@ -48,8 +48,8 @@ class ClaudeAgent extends AbstractLLMAgent
             'model' => $this->model,
             'max_tokens' => $this->maxTokens,
             'messages' => [
-                ['role' => 'user', 'content' => $userMessage]
-            ]
+                ['role' => 'user', 'content' => $userMessage],
+            ],
         ];
 
         // Add system prompt if set

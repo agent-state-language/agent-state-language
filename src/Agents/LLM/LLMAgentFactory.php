@@ -107,7 +107,7 @@ class LLMAgentFactory
         $agents = [];
 
         foreach ($configs as $name => $config) {
-            $config['name'] = $config['name'] ?? $name;
+            $config['name'] ??= $name;
             $agents[$name] = self::create($config);
         }
 

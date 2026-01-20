@@ -7,7 +7,9 @@ namespace AgentStateLanguage\Engine;
 use AgentStateLanguage\Agents\AgentInterface;
 use AgentStateLanguage\Agents\AgentRegistry;
 use AgentStateLanguage\Exceptions\ASLException;
+use AgentStateLanguage\Exceptions\ExecutionPausedException;
 use AgentStateLanguage\Exceptions\ValidationException;
+use AgentStateLanguage\Handlers\ApprovalHandlerInterface;
 use AgentStateLanguage\States\StateFactory;
 use AgentStateLanguage\States\StateInterface;
 use AgentStateLanguage\Validation\WorkflowValidator;
@@ -25,6 +27,21 @@ class WorkflowEngine
     private array $states = [];
     private ?WorkflowValidator $validator = null;
 
+    // Approval handler for human-in-the-loop
+    private ?ApprovalHandlerInterface $approvalHandler = null;
+
+    // State lifecycle callbacks
+    /** @var callable|null */
+    private $onStateEnterCallback = null;
+    /** @var callable|null */
+    private $onStateExitCallback = null;
+
+    // Pause state tracking
+    private bool $isPaused = false;
+    private ?string $pausedAtState = null;
+    /** @var array<string, mixed> */
+    private array $pausedCheckpointData = [];
+
     /**
      * @param array<string, mixed> $definition Workflow definition
      * @param AgentRegistry $registry Agent registry
@@ -35,6 +52,18 @@ class WorkflowEngine
         $this->registry = $registry;
         $this->factory = new StateFactory($registry);
         $this->initializeStates();
+    }
+
+    /**
+     * Create engine from an array definition.
+     *
+     * @param array<string, mixed> $definition Workflow definition
+     * @param AgentRegistry $registry Agent registry
+     * @return self
+     */
+    public static function fromArray(array $definition, AgentRegistry $registry): self
+    {
+        return new self($definition, $registry);
     }
 
     /**
@@ -107,6 +136,68 @@ class WorkflowEngine
     }
 
     /**
+     * Set the approval handler for human-in-the-loop workflows.
+     *
+     * @param ApprovalHandlerInterface $handler The approval handler
+     * @return self
+     */
+    public function setApprovalHandler(ApprovalHandlerInterface $handler): self
+    {
+        $this->approvalHandler = $handler;
+        return $this;
+    }
+
+    /**
+     * Set callback for when a state is entered.
+     *
+     * @param callable(string, array<string, mixed>): void $callback
+     * @return self
+     */
+    public function onStateEnter(callable $callback): self
+    {
+        $this->onStateEnterCallback = $callback;
+        return $this;
+    }
+
+    /**
+     * Set callback for when a state is exited.
+     *
+     * @param callable(string, mixed, float): void $callback
+     * @return self
+     */
+    public function onStateExit(callable $callback): self
+    {
+        $this->onStateExitCallback = $callback;
+        return $this;
+    }
+
+    /**
+     * Check if the workflow is paused waiting for input.
+     */
+    public function isPaused(): bool
+    {
+        return $this->isPaused;
+    }
+
+    /**
+     * Get the state where execution paused.
+     */
+    public function getPausedAtState(): ?string
+    {
+        return $this->pausedAtState;
+    }
+
+    /**
+     * Get the checkpoint data from when execution paused.
+     *
+     * @return array<string, mixed>
+     */
+    public function getPausedCheckpointData(): array
+    {
+        return $this->pausedCheckpointData;
+    }
+
+    /**
      * Validate the workflow definition.
      *
      * @return bool True if valid
@@ -125,24 +216,53 @@ class WorkflowEngine
      * Run the workflow with the given input.
      *
      * @param array<string, mixed> $input Initial input data
+     * @param string|null $startFromState Optional state to start/resume from
+     * @param array<string, mixed>|null $resumeData Optional data for resuming (e.g., approval response)
      * @return WorkflowResult Execution result
      */
-    public function run(array $input = []): WorkflowResult
-    {
+    public function run(
+        array $input = [],
+        ?string $startFromState = null,
+        ?array $resumeData = null
+    ): WorkflowResult {
         $startTime = microtime(true);
+
+        // Reset pause state
+        $this->isPaused = false;
+        $this->pausedAtState = null;
+        $this->pausedCheckpointData = [];
 
         // Create execution context
         $workflowName = $this->definition['Comment'] ?? 'Unnamed Workflow';
         $context = new ExecutionContext($workflowName);
 
+        // Configure context with approval handler
+        if ($this->approvalHandler !== null) {
+            $context->setApprovalHandler($this->approvalHandler);
+        }
+
+        // Configure context with callbacks
+        if ($this->onStateEnterCallback !== null) {
+            $context->onStateEnter($this->onStateEnterCallback);
+        }
+        if ($this->onStateExitCallback !== null) {
+            $context->onStateExit($this->onStateExitCallback);
+        }
+
+        // Set resume data if provided
+        if ($resumeData !== null) {
+            $context->setResumeData($resumeData);
+        }
+
         $context->addTraceEntry([
             'type' => 'workflow_start',
             'input' => $input,
+            'resumeFrom' => $startFromState,
         ]);
 
         try {
             // Get starting state
-            $startAt = $this->definition['StartAt'] ?? null;
+            $startAt = $startFromState ?? $this->definition['StartAt'] ?? null;
             if ($startAt === null) {
                 throw new ASLException(
                     'Workflow missing required StartAt field',
@@ -163,10 +283,16 @@ class WorkflowEngine
                 }
 
                 $state = $this->states[$currentState];
+
+                // Store checkpoint data before entering state
+                $context->setCheckpointData($currentInput);
                 $context->enterState($currentState);
 
                 // Execute state with retry handling
                 $result = $this->executeWithRetry($state, $currentInput, $context);
+
+                // Notify state exit
+                $context->exitState($currentState, $result->getOutput());
 
                 // Handle errors with catch
                 if ($result->hasError()) {
@@ -214,6 +340,28 @@ class WorkflowEngine
                 $duration,
                 $context->getTotalTokens(),
                 $context->getTotalCost()
+            );
+        } catch (ExecutionPausedException $e) {
+            // Workflow paused for human input
+            $duration = microtime(true) - $startTime;
+
+            $this->isPaused = true;
+            $this->pausedAtState = $e->getStateName();
+            $this->pausedCheckpointData = $e->getCheckpointData();
+
+            $context->markPaused();
+            $context->addTraceEntry([
+                'type' => 'workflow_paused',
+                'state' => $e->getStateName(),
+                'pendingInput' => $e->getPendingInput(),
+            ]);
+
+            return WorkflowResult::paused(
+                $e->getStateName(),
+                $e->getCheckpointData(),
+                $e->getPendingInput(),
+                $context->getTrace(),
+                $duration
             );
         } catch (ASLException $e) {
             $duration = microtime(true) - $startTime;
@@ -282,7 +430,7 @@ class WorkflowEngine
 
         foreach ($retriers as $retrier) {
             $errorEquals = $retrier['ErrorEquals'] ?? [];
-            
+
             // Check if this retrier matches the error
             if (!$this->errorMatches($result->getError(), $errorEquals)) {
                 continue;

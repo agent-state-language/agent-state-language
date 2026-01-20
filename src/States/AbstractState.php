@@ -155,7 +155,7 @@ abstract class AbstractState implements StateInterface
         }
 
         // Create context with result available
-        $combined = is_array($result) 
+        $combined = is_array($result)
             ? array_merge($input, $result)
             : array_merge($input, ['result' => $result]);
 

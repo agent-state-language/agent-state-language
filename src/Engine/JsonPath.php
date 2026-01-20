@@ -180,7 +180,7 @@ class JsonPath
 
         $pathPart = substr($path, 2);
         $segments = explode('.', $pathPart);
-        
+
         return self::setNested($data, $segments, $value);
     }
 
@@ -231,11 +231,11 @@ class JsonPath
         foreach ($parameters as $key => $value) {
             // Ensure key is a string for string operations
             $keyStr = (string) $key;
-            
+
             // Check if key ends with .$ (dynamic value)
             if (str_ends_with($keyStr, '.$')) {
                 $actualKey = substr($keyStr, 0, -2);
-                
+
                 if (is_string($value)) {
                     // Check for intrinsic functions
                     if (str_starts_with($value, 'States.')) {
