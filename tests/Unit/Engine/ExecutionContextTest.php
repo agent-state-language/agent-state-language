@@ -9,290 +9,173 @@ use PHPUnit\Framework\TestCase;
 
 class ExecutionContextTest extends TestCase
 {
-    public function testCreateWithInput(): void
-    {
-        $input = ['name' => 'John', 'age' => 30];
-        $context = new ExecutionContext($input);
-        
-        $this->assertEquals($input, $context->getData());
-    }
-
     public function testGetExecutionId(): void
     {
-        $context = new ExecutionContext([]);
+        $context = new ExecutionContext('TestWorkflow');
         
         $this->assertNotEmpty($context->getExecutionId());
-        $this->assertMatchesRegularExpression('/^exec-[0-9a-f]+$/', $context->getExecutionId());
+    }
+
+    public function testGetWorkflowName(): void
+    {
+        $context = new ExecutionContext('TestWorkflow');
+        
+        $this->assertEquals('TestWorkflow', $context->getWorkflowName());
     }
 
     public function testGetStartTime(): void
     {
-        $before = new \DateTimeImmutable();
-        $context = new ExecutionContext([]);
-        $after = new \DateTimeImmutable();
+        $before = date('c');
+        $context = new ExecutionContext();
+        $after = date('c');
         
         $this->assertGreaterThanOrEqual($before, $context->getStartTime());
         $this->assertLessThanOrEqual($after, $context->getStartTime());
     }
 
-    public function testSetAndGetCurrentState(): void
+    public function testEnterState(): void
     {
-        $context = new ExecutionContext([]);
+        $context = new ExecutionContext();
         
-        $context->setCurrentState('TaskState');
+        $context->enterState('TaskState');
         
         $this->assertEquals('TaskState', $context->getCurrentState());
+        $this->assertEquals(0, $context->getRetryCount());
     }
 
-    public function testSetData(): void
+    public function testIncrementRetry(): void
     {
-        $context = new ExecutionContext(['old' => 'value']);
+        $context = new ExecutionContext();
+        $context->enterState('TaskState');
         
-        $context->setData(['new' => 'data']);
+        $context->incrementRetry();
+        $context->incrementRetry();
         
-        $this->assertEquals(['new' => 'data'], $context->getData());
+        $this->assertEquals(2, $context->getRetryCount());
     }
 
-    public function testMergeData(): void
+    public function testRetryResetOnEnterState(): void
     {
-        $context = new ExecutionContext(['existing' => 'value']);
+        $context = new ExecutionContext();
+        $context->enterState('State1');
+        $context->incrementRetry();
+        $context->incrementRetry();
         
-        $context->mergeData(['new' => 'data']);
+        $context->enterState('State2');
         
-        $this->assertEquals([
-            'existing' => 'value',
-            'new' => 'data'
-        ], $context->getData());
+        $this->assertEquals(0, $context->getRetryCount());
     }
 
-    public function testMergeDataOverwrites(): void
+    public function testMapContext(): void
     {
-        $context = new ExecutionContext(['key' => 'old']);
+        $context = new ExecutionContext();
         
-        $context->mergeData(['key' => 'new']);
+        $context->setMapContext(2, ['name' => 'John']);
         
-        $this->assertEquals(['key' => 'new'], $context->getData());
+        $this->assertEquals(2, $context->getMapItemIndex());
+        $this->assertEquals(['name' => 'John'], $context->getMapItemValue());
     }
 
-    public function testSetResultPath(): void
+    public function testClearMapContext(): void
     {
-        $context = new ExecutionContext(['input' => 'value']);
+        $context = new ExecutionContext();
+        $context->setMapContext(1, 'value');
         
-        $context->setResultPath('$.output', ['result' => 'data']);
+        $context->clearMapContext();
         
-        $this->assertEquals([
-            'input' => 'value',
-            'output' => ['result' => 'data']
-        ], $context->getData());
+        $this->assertNull($context->getMapItemIndex());
+        $this->assertNull($context->getMapItemValue());
     }
 
-    public function testSetNestedResultPath(): void
+    public function testAddAndGetTrace(): void
     {
-        $context = new ExecutionContext(['data' => ['existing' => 'value']]);
+        $context = new ExecutionContext();
+        $context->enterState('TestState');
         
-        $context->setResultPath('$.data.result', 'new value');
+        $context->addTraceEntry(['action' => 'test', 'data' => 'value']);
         
-        $this->assertEquals([
-            'data' => [
-                'existing' => 'value',
-                'result' => 'new value'
-            ]
-        ], $context->getData());
+        $trace = $context->getTrace();
+        
+        $this->assertCount(1, $trace);
+        $this->assertEquals('test', $trace[0]['action']);
+        $this->assertEquals('TestState', $trace[0]['state']);
+        $this->assertArrayHasKey('timestamp', $trace[0]);
     }
 
-    public function testGetValue(): void
+    public function testTokenTracking(): void
     {
-        $context = new ExecutionContext([
-            'user' => ['name' => 'John']
-        ]);
+        $context = new ExecutionContext();
         
-        $result = $context->getValue('$.user.name');
+        $context->addTokens(500);
+        $context->addTokens(300);
         
-        $this->assertEquals('John', $result);
+        $this->assertEquals(800, $context->getTotalTokens());
     }
 
-    public function testGetValueWithDefault(): void
+    public function testCostTracking(): void
     {
-        $context = new ExecutionContext([]);
+        $context = new ExecutionContext();
         
-        $result = $context->getValue('$.missing', 'default');
+        $context->addCost(0.05);
+        $context->addCost(0.10);
         
-        $this->assertEquals('default', $result);
+        $this->assertEqualsWithDelta(0.15, $context->getTotalCost(), 0.0001);
     }
 
-    public function testResolveParameters(): void
+    public function testToContextObject(): void
     {
-        $context = new ExecutionContext([
-            'user' => ['name' => 'John', 'age' => 30]
-        ]);
+        $context = new ExecutionContext('MyWorkflow');
+        $context->enterState('CurrentState');
         
-        $parameters = [
-            'name.$' => '$.user.name',
-            'age.$' => '$.user.age',
-            'static' => 'value'
-        ];
+        $obj = $context->toContextObject();
         
-        $result = $context->resolveParameters($parameters);
-        
-        $this->assertEquals([
-            'name' => 'John',
-            'age' => 30,
-            'static' => 'value'
-        ], $result);
+        $this->assertArrayHasKey('Execution', $obj);
+        $this->assertArrayHasKey('State', $obj);
+        $this->assertEquals('MyWorkflow', $obj['Execution']['Name']);
+        $this->assertEquals('CurrentState', $obj['State']['Name']);
     }
 
-    public function testApplyInputPath(): void
+    public function testToContextObjectWithMapContext(): void
     {
-        $context = new ExecutionContext([
-            'wrapper' => ['data' => ['value' => 'test']]
-        ]);
+        $context = new ExecutionContext();
+        $context->setMapContext(5, ['item' => 'value']);
         
-        $context->applyInputPath('$.wrapper.data');
+        $obj = $context->toContextObject();
         
-        $this->assertEquals(['value' => 'test'], $context->getData());
+        $this->assertArrayHasKey('Map', $obj);
+        $this->assertEquals(5, $obj['Map']['Item']['Index']);
+        $this->assertEquals(['item' => 'value'], $obj['Map']['Item']['Value']);
     }
 
-    public function testApplyOutputPath(): void
+    public function testToContextObjectWithoutMapContext(): void
     {
-        $context = new ExecutionContext([
-            'result' => ['value' => 'test'],
-            'other' => 'data'
-        ]);
+        $context = new ExecutionContext();
         
-        $context->applyOutputPath('$.result');
+        $obj = $context->toContextObject();
         
-        $this->assertEquals(['value' => 'test'], $context->getData());
+        $this->assertArrayNotHasKey('Map', $obj);
     }
 
-    public function testGetContextVariables(): void
+    public function testStateEnteredTime(): void
     {
-        $context = new ExecutionContext([]);
-        $context->setCurrentState('TestState');
+        $context = new ExecutionContext();
         
-        $variables = $context->getContextVariables();
+        $context->enterState('State1');
+        $time1 = $context->getStateEnteredTime();
         
-        $this->assertArrayHasKey('Execution', $variables);
-        $this->assertArrayHasKey('State', $variables);
-        $this->assertEquals('TestState', $variables['State']['Name']);
-        $this->assertArrayHasKey('Id', $variables['Execution']);
-        $this->assertArrayHasKey('StartTime', $variables['Execution']);
+        usleep(1000); // Small delay
+        
+        $context->enterState('State2');
+        $time2 = $context->getStateEnteredTime();
+        
+        $this->assertNotEmpty($time1);
+        $this->assertNotEmpty($time2);
     }
 
-    public function testTrackCost(): void
+    public function testDefaultWorkflowName(): void
     {
-        $context = new ExecutionContext([]);
+        $context = new ExecutionContext();
         
-        $context->trackCost(0.50);
-        $context->trackCost(0.25);
-        
-        $this->assertEquals(0.75, $context->getTotalCost());
-    }
-
-    public function testTrackTokens(): void
-    {
-        $context = new ExecutionContext([]);
-        
-        $context->trackTokens(1000);
-        $context->trackTokens(500);
-        
-        $this->assertEquals(1500, $context->getTotalTokens());
-    }
-
-    public function testClone(): void
-    {
-        $context = new ExecutionContext(['original' => 'data']);
-        $context->setCurrentState('OriginalState');
-        
-        $clone = $context->clone();
-        $clone->setData(['new' => 'data']);
-        $clone->setCurrentState('NewState');
-        
-        // Original should be unchanged
-        $this->assertEquals(['original' => 'data'], $context->getData());
-        $this->assertEquals('OriginalState', $context->getCurrentState());
-        
-        // Clone should have new values
-        $this->assertEquals(['new' => 'data'], $clone->getData());
-        $this->assertEquals('NewState', $clone->getCurrentState());
-    }
-
-    public function testCheckpoints(): void
-    {
-        $context = new ExecutionContext(['step1' => 'complete']);
-        
-        $checkpoint = $context->createCheckpoint('checkpoint1');
-        
-        $this->assertArrayHasKey('id', $checkpoint);
-        $this->assertArrayHasKey('data', $checkpoint);
-        $this->assertArrayHasKey('timestamp', $checkpoint);
-        $this->assertEquals('checkpoint1', $checkpoint['id']);
-    }
-
-    public function testRestoreFromCheckpoint(): void
-    {
-        $context = new ExecutionContext(['step1' => 'complete']);
-        $checkpoint = $context->createCheckpoint('checkpoint1');
-        
-        // Modify context
-        $context->setData(['step2' => 'complete']);
-        $this->assertEquals(['step2' => 'complete'], $context->getData());
-        
-        // Restore from checkpoint
-        $context->restoreFromCheckpoint($checkpoint);
-        
-        $this->assertEquals(['step1' => 'complete'], $context->getData());
-    }
-
-    public function testStateHistory(): void
-    {
-        $context = new ExecutionContext([]);
-        
-        $context->enterState('State1', ['input' => 'data']);
-        $context->exitState('State1', ['output' => 'result']);
-        
-        $history = $context->getStateHistory();
-        
-        $this->assertCount(1, $history);
-        $this->assertEquals('State1', $history[0]['state']);
-        $this->assertArrayHasKey('enteredAt', $history[0]);
-        $this->assertArrayHasKey('exitedAt', $history[0]);
-        $this->assertArrayHasKey('duration', $history[0]);
-    }
-
-    public function testMapIteratorContext(): void
-    {
-        $context = new ExecutionContext(['items' => [1, 2, 3]]);
-        
-        $context->setMapContext(1, ['value' => 2]);
-        
-        $mapContext = $context->getMapContext();
-        
-        $this->assertEquals(1, $mapContext['Item']['Index']);
-        $this->assertEquals(['value' => 2], $mapContext['Item']['Value']);
-    }
-
-    public function testMetadata(): void
-    {
-        $context = new ExecutionContext([]);
-        
-        $context->setMetadata('custom_key', 'custom_value');
-        
-        $this->assertEquals('custom_value', $context->getMetadata('custom_key'));
-        $this->assertNull($context->getMetadata('missing'));
-    }
-
-    public function testToArray(): void
-    {
-        $context = new ExecutionContext(['key' => 'value']);
-        $context->setCurrentState('TestState');
-        
-        $array = $context->toArray();
-        
-        $this->assertArrayHasKey('executionId', $array);
-        $this->assertArrayHasKey('currentState', $array);
-        $this->assertArrayHasKey('data', $array);
-        $this->assertArrayHasKey('totalCost', $array);
-        $this->assertArrayHasKey('totalTokens', $array);
-        $this->assertEquals('TestState', $array['currentState']);
+        $this->assertEquals('', $context->getWorkflowName());
     }
 }

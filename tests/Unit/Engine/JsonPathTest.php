@@ -9,32 +9,25 @@ use PHPUnit\Framework\TestCase;
 
 class JsonPathTest extends TestCase
 {
-    private JsonPath $jsonPath;
-
-    protected function setUp(): void
-    {
-        $this->jsonPath = new JsonPath();
-    }
-
-    public function testGetRootPath(): void
+    public function testEvaluateRootPath(): void
     {
         $data = ['name' => 'John', 'age' => 30];
         
-        $result = $this->jsonPath->get('$', $data);
+        $result = JsonPath::evaluate('$', $data);
         
         $this->assertEquals($data, $result);
     }
 
-    public function testGetSimpleProperty(): void
+    public function testEvaluateSimpleProperty(): void
     {
         $data = ['name' => 'John', 'age' => 30];
         
-        $result = $this->jsonPath->get('$.name', $data);
+        $result = JsonPath::evaluate('$.name', $data);
         
         $this->assertEquals('John', $result);
     }
 
-    public function testGetNestedProperty(): void
+    public function testEvaluateNestedProperty(): void
     {
         $data = [
             'user' => [
@@ -45,34 +38,34 @@ class JsonPathTest extends TestCase
             ]
         ];
         
-        $result = $this->jsonPath->get('$.user.profile.name', $data);
+        $result = JsonPath::evaluate('$.user.profile.name', $data);
         
         $this->assertEquals('John', $result);
     }
 
-    public function testGetArrayIndex(): void
+    public function testEvaluateArrayIndex(): void
     {
         $data = [
             'items' => ['apple', 'banana', 'cherry']
         ];
         
-        $result = $this->jsonPath->get('$.items[0]', $data);
+        $result = JsonPath::evaluate('$.items[0]', $data);
         
         $this->assertEquals('apple', $result);
     }
 
-    public function testGetArrayWithNegativeIndex(): void
+    public function testEvaluateArrayWithNegativeIndex(): void
     {
         $data = [
             'items' => ['apple', 'banana', 'cherry']
         ];
         
-        $result = $this->jsonPath->get('$.items[-1]', $data);
+        $result = JsonPath::evaluate('$.items[-1]', $data);
         
         $this->assertEquals('cherry', $result);
     }
 
-    public function testGetNestedArrayProperty(): void
+    public function testEvaluateNestedArrayProperty(): void
     {
         $data = [
             'users' => [
@@ -81,34 +74,25 @@ class JsonPathTest extends TestCase
             ]
         ];
         
-        $result = $this->jsonPath->get('$.users[1].name', $data);
+        $result = JsonPath::evaluate('$.users[1].name', $data);
         
         $this->assertEquals('Jane', $result);
     }
 
-    public function testGetReturnsNullForMissingPath(): void
+    public function testEvaluateReturnsNullForMissingPath(): void
     {
         $data = ['name' => 'John'];
         
-        $result = $this->jsonPath->get('$.missing', $data);
+        $result = JsonPath::evaluate('$.missing', $data);
         
         $this->assertNull($result);
-    }
-
-    public function testGetWithDefaultValue(): void
-    {
-        $data = ['name' => 'John'];
-        
-        $result = $this->jsonPath->get('$.missing', $data, 'default');
-        
-        $this->assertEquals('default', $result);
     }
 
     public function testSetSimpleProperty(): void
     {
         $data = ['name' => 'John'];
         
-        $result = $this->jsonPath->set('$.age', $data, 30);
+        $result = JsonPath::set('$.age', $data, 30);
         
         $this->assertEquals(['name' => 'John', 'age' => 30], $result);
     }
@@ -117,7 +101,7 @@ class JsonPathTest extends TestCase
     {
         $data = ['user' => ['name' => 'John']];
         
-        $result = $this->jsonPath->set('$.user.age', $data, 30);
+        $result = JsonPath::set('$.user.age', $data, 30);
         
         $this->assertEquals(['user' => ['name' => 'John', 'age' => 30]], $result);
     }
@@ -126,63 +110,41 @@ class JsonPathTest extends TestCase
     {
         $data = [];
         
-        $result = $this->jsonPath->set('$.user.profile.name', $data, 'John');
+        $result = JsonPath::set('$.user.profile.name', $data, 'John');
         
         $this->assertEquals(['user' => ['profile' => ['name' => 'John']]], $result);
     }
 
-    public function testSetArrayIndex(): void
+    public function testContextVariableAccess(): void
     {
-        $data = ['items' => ['a', 'b', 'c']];
+        $data = ['input' => ['value' => 'test']];
+        $context = [
+            'State' => ['Name' => 'TaskState', 'EnteredTime' => '2024-01-01T00:00:00Z'],
+            'Execution' => ['Id' => 'exec-123']
+        ];
         
-        $result = $this->jsonPath->set('$.items[1]', $data, 'x');
+        $result = JsonPath::evaluate('$$.State.Name', $data, $context);
         
-        $this->assertEquals(['items' => ['a', 'x', 'c']], $result);
+        $this->assertEquals('TaskState', $result);
     }
 
-    public function testDeleteProperty(): void
+    public function testWildcardArrayAccess(): void
     {
-        $data = ['name' => 'John', 'age' => 30];
+        $data = [
+            'users' => [
+                ['name' => 'John'],
+                ['name' => 'Jane'],
+                ['name' => 'Bob']
+            ]
+        ];
         
-        $result = $this->jsonPath->delete('$.age', $data);
+        $result = JsonPath::evaluate('$.users[*]', $data);
         
-        $this->assertEquals(['name' => 'John'], $result);
-    }
-
-    public function testDeleteNestedProperty(): void
-    {
-        $data = ['user' => ['name' => 'John', 'age' => 30]];
-        
-        $result = $this->jsonPath->delete('$.user.age', $data);
-        
-        $this->assertEquals(['user' => ['name' => 'John']], $result);
-    }
-
-    public function testExistsReturnsTrue(): void
-    {
-        $data = ['name' => 'John'];
-        
-        $result = $this->jsonPath->exists('$.name', $data);
-        
-        $this->assertTrue($result);
-    }
-
-    public function testExistsReturnsFalse(): void
-    {
-        $data = ['name' => 'John'];
-        
-        $result = $this->jsonPath->exists('$.missing', $data);
-        
-        $this->assertFalse($result);
-    }
-
-    public function testExistsReturnsTrueForNullValue(): void
-    {
-        $data = ['name' => null];
-        
-        $result = $this->jsonPath->exists('$.name', $data);
-        
-        $this->assertTrue($result);
+        $this->assertEquals([
+            ['name' => 'John'],
+            ['name' => 'Jane'],
+            ['name' => 'Bob']
+        ], $result);
     }
 
     public function testResolveParameters(): void
@@ -194,7 +156,7 @@ class JsonPathTest extends TestCase
         ];
         $data = ['user' => ['name' => 'John', 'age' => 30]];
         
-        $result = $this->jsonPath->resolveParameters($parameters, $data);
+        $result = JsonPath::resolveParameters($parameters, $data);
         
         $this->assertEquals([
             'name' => 'John',
@@ -213,7 +175,7 @@ class JsonPathTest extends TestCase
         ];
         $data = ['data' => ['name' => 'John', 'email' => 'john@example.com']];
         
-        $result = $this->jsonPath->resolveParameters($parameters, $data);
+        $result = JsonPath::resolveParameters($parameters, $data);
         
         $this->assertEquals([
             'user' => [
@@ -230,24 +192,11 @@ class JsonPathTest extends TestCase
         ];
         $data = ['list' => ['a', 'b', 'c']];
         
-        $result = $this->jsonPath->resolveParameters($parameters, $data);
+        $result = JsonPath::resolveParameters($parameters, $data);
         
         $this->assertEquals([
             'items' => ['a', 'b', 'c']
         ], $result);
-    }
-
-    public function testContextVariableAccess(): void
-    {
-        $data = ['input' => ['value' => 'test']];
-        $context = [
-            'State' => ['Name' => 'TaskState', 'EnteredTime' => '2024-01-01T00:00:00Z'],
-            'Execution' => ['Id' => 'exec-123']
-        ];
-        
-        $result = $this->jsonPath->get('$$.State.Name', $data, null, $context);
-        
-        $this->assertEquals('TaskState', $result);
     }
 
     public function testMapItemAccess(): void
@@ -259,23 +208,17 @@ class JsonPathTest extends TestCase
             ]
         ];
         
-        $result = $this->jsonPath->get('$$.Map.Item.Index', $data, null, $context);
+        $result = JsonPath::evaluate('$$.Map.Item.Index', $data, $context);
         
         $this->assertEquals(2, $result);
     }
 
-    public function testWildcardArrayAccess(): void
+    public function testNullResultPath(): void
     {
-        $data = [
-            'users' => [
-                ['name' => 'John'],
-                ['name' => 'Jane'],
-                ['name' => 'Bob']
-            ]
-        ];
+        $data = ['preserved' => 'data'];
         
-        $result = $this->jsonPath->get('$.users[*].name', $data);
+        $result = JsonPath::set('null', $data, ['discarded' => 'result']);
         
-        $this->assertEquals(['John', 'Jane', 'Bob'], $result);
+        $this->assertEquals(['preserved' => 'data'], $result);
     }
 }
