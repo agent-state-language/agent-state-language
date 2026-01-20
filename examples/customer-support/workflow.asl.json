@@ -1,0 +1,280 @@
+{
+  "Comment": "Customer Support - Intent classification and routing",
+  "Version": "1.0",
+  "StartAt": "LoadCustomerContext",
+  "Memory": {
+    "Backend": "redis",
+    "DefaultTTL": "30d"
+  },
+  "States": {
+    "LoadCustomerContext": {
+      "Type": "Task",
+      "Agent": "ContextLoader",
+      "Memory": {
+        "Read": {
+          "Keys": ["customer_history", "preferences"],
+          "InjectAt": "$.customerContext",
+          "Default": { "isNew": true }
+        }
+      },
+      "Parameters": {
+        "customerId.$": "$.customerId"
+      },
+      "Next": "ClassifyIntent"
+    },
+    "ClassifyIntent": {
+      "Type": "Task",
+      "Agent": "IntentClassifier",
+      "Parameters": {
+        "message.$": "$.message",
+        "customerContext.$": "$.customerContext"
+      },
+      "ResultPath": "$.intent",
+      "Next": "RouteByIntent"
+    },
+    "RouteByIntent": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.intent.category",
+          "StringEquals": "billing",
+          "Next": "BillingSupport"
+        },
+        {
+          "Variable": "$.intent.category",
+          "StringEquals": "technical",
+          "Next": "TechnicalSupport"
+        },
+        {
+          "Variable": "$.intent.category",
+          "StringEquals": "refund",
+          "Next": "RefundRequest"
+        },
+        {
+          "Variable": "$.intent.category",
+          "StringEquals": "complaint",
+          "Next": "ComplaintHandling"
+        },
+        {
+          "Variable": "$.intent.category",
+          "StringEquals": "sales",
+          "Next": "SalesInquiry"
+        }
+      ],
+      "Default": "GeneralSupport"
+    },
+    "BillingSupport": {
+      "Type": "Task",
+      "Agent": "BillingAgent",
+      "Parameters": {
+        "message.$": "$.message",
+        "customerId.$": "$.customerId",
+        "intent.$": "$.intent"
+      },
+      "Tools": {
+        "Allowed": ["lookup_invoice", "check_payment_status"]
+      },
+      "ResultPath": "$.response",
+      "Next": "CheckNeedsEscalation"
+    },
+    "TechnicalSupport": {
+      "Type": "Task",
+      "Agent": "TechnicalAgent",
+      "Parameters": {
+        "message.$": "$.message",
+        "customerContext.$": "$.customerContext"
+      },
+      "Tools": {
+        "Allowed": ["search_knowledge_base", "check_system_status"]
+      },
+      "ResultPath": "$.response",
+      "Next": "CheckNeedsEscalation"
+    },
+    "RefundRequest": {
+      "Type": "Task",
+      "Agent": "RefundAgent",
+      "Parameters": {
+        "message.$": "$.message",
+        "customerId.$": "$.customerId"
+      },
+      "Tools": {
+        "Allowed": ["lookup_order", "check_refund_policy"]
+      },
+      "ResultPath": "$.refundAnalysis",
+      "Next": "CheckRefundApproval"
+    },
+    "CheckRefundApproval": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.refundAnalysis.autoApprove",
+          "BooleanEquals": true,
+          "Next": "ProcessRefund"
+        },
+        {
+          "Variable": "$.refundAnalysis.amount",
+          "NumericGreaterThan": 100,
+          "Next": "RefundApproval"
+        }
+      ],
+      "Default": "ProcessRefund"
+    },
+    "RefundApproval": {
+      "Type": "Approval",
+      "Prompt": {
+        "Title": "Refund Approval Required",
+        "Customer.$": "$.customerId",
+        "Amount.$": "$.refundAnalysis.amount",
+        "Reason.$": "$.refundAnalysis.reason"
+      },
+      "Options": ["approve", "partial", "deny"],
+      "Timeout": "4h",
+      "ResultPath": "$.approval",
+      "Next": "ProcessRefundDecision"
+    },
+    "ProcessRefundDecision": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.approval.approval",
+          "StringEquals": "approve",
+          "Next": "ProcessRefund"
+        },
+        {
+          "Variable": "$.approval.approval",
+          "StringEquals": "partial",
+          "Next": "ProcessPartialRefund"
+        }
+      ],
+      "Default": "RefundDenied"
+    },
+    "ProcessRefund": {
+      "Type": "Task",
+      "Agent": "RefundProcessor",
+      "Parameters": {
+        "customerId.$": "$.customerId",
+        "amount.$": "$.refundAnalysis.amount"
+      },
+      "ResultPath": "$.response",
+      "Next": "SaveInteraction"
+    },
+    "ProcessPartialRefund": {
+      "Type": "Task",
+      "Agent": "RefundProcessor",
+      "Parameters": {
+        "customerId.$": "$.customerId",
+        "amount.$": "$.approval.partialAmount"
+      },
+      "ResultPath": "$.response",
+      "Next": "SaveInteraction"
+    },
+    "RefundDenied": {
+      "Type": "Task",
+      "Agent": "ResponseGenerator",
+      "Parameters": {
+        "template": "refund_denied",
+        "reason.$": "$.approval.reason"
+      },
+      "ResultPath": "$.response",
+      "Next": "SaveInteraction"
+    },
+    "ComplaintHandling": {
+      "Type": "Task",
+      "Agent": "ComplaintAgent",
+      "Parameters": {
+        "message.$": "$.message",
+        "customerContext.$": "$.customerContext"
+      },
+      "Guardrails": {
+        "Output": {
+          "Rules": [
+            { "Type": "semantic", "Check": "empathetic_tone" }
+          ]
+        }
+      },
+      "ResultPath": "$.response",
+      "Next": "CheckSeverity"
+    },
+    "CheckSeverity": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.response.severity",
+          "StringEquals": "high",
+          "Next": "EscalateToHuman"
+        }
+      ],
+      "Default": "SaveInteraction"
+    },
+    "SalesInquiry": {
+      "Type": "Task",
+      "Agent": "SalesAgent",
+      "Parameters": {
+        "message.$": "$.message",
+        "customerContext.$": "$.customerContext"
+      },
+      "ResultPath": "$.response",
+      "Next": "SaveInteraction"
+    },
+    "GeneralSupport": {
+      "Type": "Task",
+      "Agent": "GeneralAgent",
+      "Parameters": {
+        "message.$": "$.message"
+      },
+      "ResultPath": "$.response",
+      "Next": "CheckNeedsEscalation"
+    },
+    "CheckNeedsEscalation": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.response.needsHuman",
+          "BooleanEquals": true,
+          "Next": "EscalateToHuman"
+        }
+      ],
+      "Default": "SaveInteraction"
+    },
+    "EscalateToHuman": {
+      "Type": "Task",
+      "Agent": "EscalationAgent",
+      "Parameters": {
+        "customerId.$": "$.customerId",
+        "message.$": "$.message",
+        "context.$": "$.response"
+      },
+      "ResultPath": "$.escalation",
+      "Next": "SaveInteraction"
+    },
+    "SaveInteraction": {
+      "Type": "Task",
+      "Agent": "InteractionLogger",
+      "Memory": {
+        "Write": {
+          "Key": "customer_history",
+          "Value.$": "$.interaction",
+          "Merge": true
+        }
+      },
+      "Parameters": {
+        "customerId.$": "$.customerId",
+        "message.$": "$.message",
+        "response.$": "$.response",
+        "intent.$": "$.intent"
+      },
+      "ResultPath": "$.logged",
+      "Next": "FormatResponse"
+    },
+    "FormatResponse": {
+      "Type": "Pass",
+      "Parameters": {
+        "message.$": "$.response.message",
+        "ticketId.$": "$.response.ticketId",
+        "escalated.$": "$.escalation.escalated",
+        "satisfaction_survey": true
+      },
+      "End": true
+    }
+  }
+}

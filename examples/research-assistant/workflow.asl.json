@@ -1,0 +1,195 @@
+{
+  "Comment": "Research Assistant - Web search, synthesis, and verification",
+  "Version": "1.0",
+  "StartAt": "ParseQuery",
+  "Budget": {
+    "MaxCost": "$2.00",
+    "MaxTokens": 40000
+  },
+  "States": {
+    "ParseQuery": {
+      "Type": "Task",
+      "Agent": "QueryParser",
+      "Parameters": {
+        "query.$": "$.query",
+        "context.$": "$.context"
+      },
+      "ResultPath": "$.parsed",
+      "Next": "DetermineStrategy"
+    },
+    "DetermineStrategy": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.parsed.type",
+          "StringEquals": "factual",
+          "Next": "QuickFactCheck"
+        },
+        {
+          "Variable": "$.parsed.type",
+          "StringEquals": "comparative",
+          "Next": "ComparativeResearch"
+        },
+        {
+          "Variable": "$.parsed.type",
+          "StringEquals": "exploratory",
+          "Next": "DeepResearch"
+        }
+      ],
+      "Default": "GeneralResearch"
+    },
+    "QuickFactCheck": {
+      "Type": "Task",
+      "Agent": "FactChecker",
+      "Parameters": {
+        "question.$": "$.parsed.mainQuestion"
+      },
+      "Tools": {
+        "Allowed": ["web_search"],
+        "RateLimits": { "web_search": { "MaxPerMinute": 5 } }
+      },
+      "ResultPath": "$.research",
+      "Next": "VerifyFindings"
+    },
+    "ComparativeResearch": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "ResearchOptionA",
+          "States": {
+            "ResearchOptionA": {
+              "Type": "Task",
+              "Agent": "Researcher",
+              "Parameters": {
+                "topic.$": "$.parsed.options[0]"
+              },
+              "Tools": { "Allowed": ["web_search", "fetch_webpage"] },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "ResearchOptionB",
+          "States": {
+            "ResearchOptionB": {
+              "Type": "Task",
+              "Agent": "Researcher",
+              "Parameters": {
+                "topic.$": "$.parsed.options[1]"
+              },
+              "Tools": { "Allowed": ["web_search", "fetch_webpage"] },
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.comparisons",
+      "Next": "CompareOptions"
+    },
+    "CompareOptions": {
+      "Type": "Task",
+      "Agent": "Comparator",
+      "Parameters": {
+        "optionA.$": "$.comparisons[0]",
+        "optionB.$": "$.comparisons[1]",
+        "criteria.$": "$.parsed.criteria"
+      },
+      "ResultPath": "$.research",
+      "Next": "VerifyFindings"
+    },
+    "DeepResearch": {
+      "Type": "Task",
+      "Agent": "DeepResearcher",
+      "Parameters": {
+        "topic.$": "$.parsed.mainQuestion",
+        "subtopics.$": "$.parsed.subtopics"
+      },
+      "Tools": {
+        "Allowed": ["web_search", "fetch_webpage"],
+        "RateLimits": {
+          "web_search": { "MaxPerMinute": 10 },
+          "fetch_webpage": { "MaxConcurrent": 3 }
+        }
+      },
+      "ResultPath": "$.research",
+      "Next": "VerifyFindings"
+    },
+    "GeneralResearch": {
+      "Type": "Task",
+      "Agent": "Researcher",
+      "Parameters": {
+        "query.$": "$.query"
+      },
+      "Tools": { "Allowed": ["web_search"] },
+      "ResultPath": "$.research",
+      "Next": "VerifyFindings"
+    },
+    "VerifyFindings": {
+      "Type": "Task",
+      "Agent": "Verifier",
+      "Parameters": {
+        "findings.$": "$.research",
+        "originalQuery.$": "$.query"
+      },
+      "Reasoning": {
+        "Required": true,
+        "Format": "chain_of_thought"
+      },
+      "ResultPath": "$.verification",
+      "Next": "CheckConfidence"
+    },
+    "CheckConfidence": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.verification.confidence",
+          "NumericLessThan": 0.7,
+          "Next": "HumanReview"
+        }
+      ],
+      "Default": "SynthesizeAnswer"
+    },
+    "HumanReview": {
+      "Type": "Approval",
+      "Prompt": {
+        "Title": "Low Confidence - Human Review Required",
+        "Question.$": "$.query",
+        "Findings.$": "$.research.summary",
+        "Concerns.$": "$.verification.concerns"
+      },
+      "Options": ["accept", "request_more_research", "manual_answer"],
+      "Timeout": "24h",
+      "ResultPath": "$.humanReview",
+      "Choices": [
+        {
+          "Variable": "$.humanReview.approval",
+          "StringEquals": "request_more_research",
+          "Next": "DeepResearch"
+        }
+      ],
+      "Default": "SynthesizeAnswer"
+    },
+    "SynthesizeAnswer": {
+      "Type": "Task",
+      "Agent": "Synthesizer",
+      "Parameters": {
+        "query.$": "$.query",
+        "research.$": "$.research",
+        "verification.$": "$.verification"
+      },
+      "ResultPath": "$.answer",
+      "Next": "FormatResponse"
+    },
+    "FormatResponse": {
+      "Type": "Pass",
+      "Parameters": {
+        "question.$": "$.query",
+        "answer.$": "$.answer.response",
+        "sources.$": "$.answer.sources",
+        "confidence.$": "$.verification.confidence",
+        "methodology.$": "$.parsed.type"
+      },
+      "End": true
+    }
+  }
+}

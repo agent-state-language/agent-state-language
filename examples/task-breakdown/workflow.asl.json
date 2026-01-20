@@ -1,0 +1,222 @@
+{
+  "Comment": "Task Breakdown Skill - Recursively decompose tasks into atomic subtasks",
+  "Version": "1.0",
+  "StartAt": "GetProjectGoal",
+  "Budget": {
+    "MaxCost": "$5.00",
+    "MaxTokens": 50000,
+    "OnExceed": "PauseAndNotify"
+  },
+  "States": {
+    "GetProjectGoal": {
+      "Type": "Pass",
+      "Parameters": {
+        "goal.$": "$.goal",
+        "projectContext.$": "$.projectContext",
+        "maxDepth": 5,
+        "currentDepth": 0
+      },
+      "Next": "AskClarifyingQuestions"
+    },
+    "AskClarifyingQuestions": {
+      "Type": "Task",
+      "Agent": "ClarifierAgent",
+      "Parameters": {
+        "goal.$": "$.goal",
+        "projectContext.$": "$.projectContext"
+      },
+      "ResultPath": "$.clarification",
+      "Next": "CheckIfNeedsClarification"
+    },
+    "CheckIfNeedsClarification": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.clarification.hasQuestions",
+          "BooleanEquals": true,
+          "Next": "WaitForAnswers"
+        }
+      ],
+      "Default": "InitialBreakdown"
+    },
+    "WaitForAnswers": {
+      "Type": "Approval",
+      "Prompt": {
+        "Title": "Clarification Needed",
+        "Description": "Please answer the following questions about your project",
+        "Questions.$": "$.clarification.questions"
+      },
+      "Options": ["submit", "skip"],
+      "Timeout": "24h",
+      "ResultPath": "$.answers",
+      "Next": "InitialBreakdown"
+    },
+    "InitialBreakdown": {
+      "Type": "Task",
+      "Agent": "BreakdownAgent",
+      "Parameters": {
+        "goal.$": "$.goal",
+        "projectContext.$": "$.projectContext",
+        "clarification.$": "$.clarification",
+        "answers.$": "$.answers"
+      },
+      "Tools": {
+        "Allowed": ["web_search", "fetch_webpage"],
+        "RateLimits": {
+          "web_search": { "MaxPerMinute": 5 }
+        }
+      },
+      "ResultPath": "$.tasks",
+      "Next": "ProcessTaskBatch"
+    },
+    "ProcessTaskBatch": {
+      "Type": "Map",
+      "ItemsPath": "$.tasks",
+      "MaxConcurrency": 3,
+      "ItemSelector": {
+        "task.$": "$$.Map.Item.Value",
+        "taskIndex.$": "$$.Map.Item.Index",
+        "depth.$": "$.currentDepth",
+        "maxDepth.$": "$.maxDepth",
+        "projectContext.$": "$.projectContext"
+      },
+      "Iterator": {
+        "StartAt": "ValidateTask",
+        "States": {
+          "ValidateTask": {
+            "Type": "Task",
+            "Agent": "ValidatorAgent",
+            "Parameters": {
+              "task.$": "$.task",
+              "depth.$": "$.depth"
+            },
+            "ResultPath": "$.validation",
+            "Next": "CheckIfAtomic"
+          },
+          "CheckIfAtomic": {
+            "Type": "Choice",
+            "Choices": [
+              {
+                "Variable": "$.validation.isAtomic",
+                "BooleanEquals": true,
+                "Next": "MarkAsAtomic"
+              },
+              {
+                "Variable": "$.depth",
+                "NumericGreaterThanEquals": 5,
+                "Next": "MarkAsMaxDepth"
+              }
+            ],
+            "Default": "BreakdownFurther"
+          },
+          "MarkAsAtomic": {
+            "Type": "Pass",
+            "Parameters": {
+              "task.$": "$.task",
+              "status": "atomic",
+              "confidence.$": "$.validation.confidence",
+              "subtasks": []
+            },
+            "End": true
+          },
+          "MarkAsMaxDepth": {
+            "Type": "Pass",
+            "Parameters": {
+              "task.$": "$.task",
+              "status": "max_depth_reached",
+              "subtasks": []
+            },
+            "End": true
+          },
+          "BreakdownFurther": {
+            "Type": "Task",
+            "Agent": "BreakdownAgent",
+            "Parameters": {
+              "goal.$": "$.task.title",
+              "projectContext.$": "$.projectContext",
+              "parentTask.$": "$.task"
+            },
+            "ResultPath": "$.breakdown",
+            "Next": "ReturnSubtasks"
+          },
+          "ReturnSubtasks": {
+            "Type": "Pass",
+            "Parameters": {
+              "task.$": "$.task",
+              "status": "has_subtasks",
+              "subtasks.$": "$.breakdown"
+            },
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.processedTasks",
+      "Next": "CollectResults"
+    },
+    "CollectResults": {
+      "Type": "Task",
+      "Agent": "ResultCollector",
+      "Parameters": {
+        "processedTasks.$": "$.processedTasks",
+        "currentDepth.$": "$.currentDepth"
+      },
+      "ResultPath": "$.collection",
+      "Next": "CheckForMoreWork"
+    },
+    "CheckForMoreWork": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.collection.hasPendingTasks",
+              "BooleanEquals": true
+            },
+            {
+              "Variable": "$.currentDepth",
+              "NumericLessThan": 5
+            }
+          ],
+          "Next": "PrepareNextIteration"
+        }
+      ],
+      "Default": "FinalizeBreakdown"
+    },
+    "PrepareNextIteration": {
+      "Type": "Pass",
+      "Parameters": {
+        "goal.$": "$.goal",
+        "projectContext.$": "$.projectContext",
+        "maxDepth.$": "$.maxDepth",
+        "currentDepth.$": "States.MathAdd($.currentDepth, 1)",
+        "tasks.$": "$.collection.pendingTasks",
+        "completedTasks.$": "$.collection.completedTasks"
+      },
+      "Next": "ProcessTaskBatch"
+    },
+    "FinalizeBreakdown": {
+      "Type": "Task",
+      "Agent": "FinalizerAgent",
+      "Parameters": {
+        "allTasks.$": "$.collection.completedTasks",
+        "goal.$": "$.goal"
+      },
+      "ResultPath": "$.finalResult",
+      "Next": "FormatOutput"
+    },
+    "FormatOutput": {
+      "Type": "Pass",
+      "Parameters": {
+        "goal.$": "$.goal",
+        "tasks.$": "$.finalResult.organizedTasks",
+        "summary.$": "$.finalResult.summary",
+        "statistics": {
+          "totalTasks.$": "$.finalResult.totalTasks",
+          "maxDepthReached.$": "$.finalResult.maxDepthReached",
+          "completedAt.$": "$$.State.EnteredTime"
+        }
+      },
+      "End": true
+    }
+  }
+}

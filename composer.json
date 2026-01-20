@@ -1,0 +1,55 @@
+{
+    "name": "agent-state-language/asl",
+    "description": "A JSON-based domain-specific language for defining configurable, composable AI agent workflows",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "agent",
+        "workflow",
+        "state-machine",
+        "ai",
+        "llm",
+        "orchestration",
+        "dsl"
+    ],
+    "authors": [
+        {
+            "name": "Dale Hurley",
+            "email": "dale@createmy.com.au"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "psr/log": "^3.0",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0",
+        "phpstan/phpstan": "^1.10",
+        "friendsofphp/php-cs-fixer": "^3.0",
+        "mockery/mockery": "^1.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "AgentStateLanguage\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "AgentStateLanguage\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:coverage": "phpunit --coverage-html coverage",
+        "cs-check": "php-cs-fixer fix --dry-run --diff",
+        "cs-fix": "php-cs-fixer fix",
+        "analyse": "phpstan analyse src tests --level=8"
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

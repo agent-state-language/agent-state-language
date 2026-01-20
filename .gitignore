@@ -1,0 +1,25 @@
+# Dependencies
+/vendor/
+composer.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+.phpunit.cache/
+.phpunit.result.cache
+coverage/
+
+# Build
+/build/
+
+# Environment
+.env
+.env.local
+
+# Cache
+*.cache

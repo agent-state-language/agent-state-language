@@ -1,0 +1,257 @@
+{
+  "Comment": "Content Pipeline - Generation, moderation, and publishing",
+  "Version": "1.0",
+  "StartAt": "ParseRequest",
+  "Budget": {
+    "MaxCost": "$1.50",
+    "Alerts": [
+      { "At": "75%", "Notify": ["content-team@example.com"] }
+    ]
+  },
+  "States": {
+    "ParseRequest": {
+      "Type": "Pass",
+      "Parameters": {
+        "topic.$": "$.topic",
+        "contentType.$": "$.contentType",
+        "targetAudience.$": "$.targetAudience",
+        "tone.$": "$.tone",
+        "length.$": "$.length",
+        "requestId.$": "States.UUID()"
+      },
+      "Next": "GenerateContent"
+    },
+    "GenerateContent": {
+      "Type": "Task",
+      "Agent": "ContentGenerator",
+      "Parameters": {
+        "topic.$": "$.topic",
+        "contentType.$": "$.contentType",
+        "targetAudience.$": "$.targetAudience",
+        "tone.$": "$.tone",
+        "length.$": "$.length"
+      },
+      "Reasoning": {
+        "Required": true,
+        "Format": "chain_of_thought",
+        "Store": "$.generationReasoning"
+      },
+      "ResultPath": "$.draft",
+      "Next": "ModerateContent"
+    },
+    "ModerateContent": {
+      "Type": "Task",
+      "Agent": "ContentModerator",
+      "Parameters": {
+        "content.$": "$.draft.content",
+        "contentType.$": "$.contentType"
+      },
+      "Guardrails": {
+        "Output": {
+          "Rules": [
+            { "Type": "semantic", "Check": "harmful_content", "Action": "block" },
+            { "Type": "pii", "Detect": true, "Action": "redact" },
+            { "Type": "regex", "Pattern": "competitor_names", "Action": "flag" }
+          ]
+        }
+      },
+      "ResultPath": "$.moderation",
+      "Next": "CheckModerationResult"
+    },
+    "CheckModerationResult": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.moderation.blocked",
+          "BooleanEquals": true,
+          "Next": "RegenerateContent"
+        },
+        {
+          "Variable": "$.moderation.flagged",
+          "BooleanEquals": true,
+          "Next": "HumanReview"
+        }
+      ],
+      "Default": "OptimizeContent"
+    },
+    "RegenerateContent": {
+      "Type": "Task",
+      "Agent": "ContentGenerator",
+      "Parameters": {
+        "topic.$": "$.topic",
+        "contentType.$": "$.contentType",
+        "targetAudience.$": "$.targetAudience",
+        "tone.$": "$.tone",
+        "length.$": "$.length",
+        "previousIssues.$": "$.moderation.issues"
+      },
+      "ResultPath": "$.draft",
+      "Next": "ModerateContent"
+    },
+    "HumanReview": {
+      "Type": "Approval",
+      "Prompt": {
+        "Title": "Content Flagged for Review",
+        "Content.$": "$.draft.content",
+        "Flags.$": "$.moderation.flags"
+      },
+      "Options": ["approve", "edit", "reject"],
+      "Editable": {
+        "Fields": ["$.draft.content"],
+        "ResultPath": "$.editedDraft"
+      },
+      "Timeout": "24h",
+      "ResultPath": "$.review",
+      "Choices": [
+        {
+          "Variable": "$.review.approval",
+          "StringEquals": "approve",
+          "Next": "OptimizeContent"
+        },
+        {
+          "Variable": "$.review.approval",
+          "StringEquals": "edit",
+          "Next": "UseEditedContent"
+        }
+      ],
+      "Default": "ContentRejected"
+    },
+    "UseEditedContent": {
+      "Type": "Pass",
+      "Parameters": {
+        "content.$": "$.editedDraft.content",
+        "editedBy.$": "$.review.approver"
+      },
+      "ResultPath": "$.draft",
+      "Next": "OptimizeContent"
+    },
+    "OptimizeContent": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "SEOOptimize",
+          "States": {
+            "SEOOptimize": {
+              "Type": "Task",
+              "Agent": "SEOOptimizer",
+              "Parameters": {
+                "content.$": "$.draft.content",
+                "keywords.$": "$.topic"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "GenerateMetadata",
+          "States": {
+            "GenerateMetadata": {
+              "Type": "Task",
+              "Agent": "MetadataGenerator",
+              "Parameters": {
+                "content.$": "$.draft.content",
+                "contentType.$": "$.contentType"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "GenerateImages",
+          "States": {
+            "GenerateImages": {
+              "Type": "Task",
+              "Agent": "ImageGenerator",
+              "Parameters": {
+                "topic.$": "$.topic",
+                "style.$": "$.tone"
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.optimizations",
+      "Next": "AssembleContent"
+    },
+    "AssembleContent": {
+      "Type": "Task",
+      "Agent": "ContentAssembler",
+      "Parameters": {
+        "draft.$": "$.draft",
+        "seo.$": "$.optimizations[0]",
+        "metadata.$": "$.optimizations[1]",
+        "images.$": "$.optimizations[2]"
+      },
+      "ResultPath": "$.assembled",
+      "Next": "FinalApproval"
+    },
+    "FinalApproval": {
+      "Type": "Approval",
+      "Prompt": {
+        "Title": "Content Ready for Publishing",
+        "Preview.$": "$.assembled.preview",
+        "Metadata.$": "$.assembled.metadata"
+      },
+      "Options": ["publish", "schedule", "save_draft"],
+      "Timeout": "48h",
+      "ResultPath": "$.publishDecision",
+      "Choices": [
+        {
+          "Variable": "$.publishDecision.approval",
+          "StringEquals": "publish",
+          "Next": "PublishNow"
+        },
+        {
+          "Variable": "$.publishDecision.approval",
+          "StringEquals": "schedule",
+          "Next": "SchedulePublish"
+        }
+      ],
+      "Default": "SaveAsDraft"
+    },
+    "PublishNow": {
+      "Type": "Task",
+      "Agent": "Publisher",
+      "Parameters": {
+        "content.$": "$.assembled",
+        "immediate": true
+      },
+      "ResultPath": "$.published",
+      "Next": "NotifySuccess"
+    },
+    "SchedulePublish": {
+      "Type": "Task",
+      "Agent": "Scheduler",
+      "Parameters": {
+        "content.$": "$.assembled",
+        "scheduledTime.$": "$.publishDecision.scheduledTime"
+      },
+      "ResultPath": "$.scheduled",
+      "Next": "NotifySuccess"
+    },
+    "SaveAsDraft": {
+      "Type": "Task",
+      "Agent": "DraftSaver",
+      "Parameters": {
+        "content.$": "$.assembled"
+      },
+      "ResultPath": "$.saved",
+      "End": true
+    },
+    "ContentRejected": {
+      "Type": "Fail",
+      "Error": "ContentRejected",
+      "Cause": "Content failed review process"
+    },
+    "NotifySuccess": {
+      "Type": "Task",
+      "Agent": "Notifier",
+      "Parameters": {
+        "type": "content_published",
+        "details.$": "$.published"
+      },
+      "End": true
+    }
+  }
+}

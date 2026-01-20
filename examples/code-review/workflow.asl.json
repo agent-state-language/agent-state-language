@@ -1,0 +1,246 @@
+{
+  "Comment": "Multi-Agent Code Review with Human Approval",
+  "Version": "1.0",
+  "StartAt": "LoadCode",
+  "Budget": {
+    "MaxCost": "$3.00",
+    "Fallback": {
+      "When": "BudgetAt80Percent",
+      "UseModel": "claude-3-sonnet"
+    }
+  },
+  "States": {
+    "LoadCode": {
+      "Type": "Task",
+      "Agent": "CodeLoader",
+      "Parameters": {
+        "files.$": "$.files",
+        "diff.$": "$.diff"
+      },
+      "ResultPath": "$.code",
+      "Next": "ParallelReview"
+    },
+    "ParallelReview": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "SecurityReview",
+          "States": {
+            "SecurityReview": {
+              "Type": "Task",
+              "Agent": "SecurityReviewer",
+              "Parameters": {
+                "code.$": "$.code",
+                "checkList": [
+                  "SQL injection",
+                  "XSS vulnerabilities",
+                  "Authentication issues",
+                  "Sensitive data exposure"
+                ]
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "PerformanceReview",
+          "States": {
+            "PerformanceReview": {
+              "Type": "Task",
+              "Agent": "PerformanceReviewer",
+              "Parameters": {
+                "code.$": "$.code",
+                "metrics": ["complexity", "memory", "efficiency"]
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "StyleReview",
+          "States": {
+            "StyleReview": {
+              "Type": "Task",
+              "Agent": "StyleReviewer",
+              "Parameters": {
+                "code.$": "$.code",
+                "standards": "PSR-12"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "TestCoverageReview",
+          "States": {
+            "TestCoverageReview": {
+              "Type": "Task",
+              "Agent": "TestReviewer",
+              "Parameters": {
+                "code.$": "$.code"
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.reviews",
+      "Next": "AggregateReviews"
+    },
+    "AggregateReviews": {
+      "Type": "Task",
+      "Agent": "ReviewAggregator",
+      "Parameters": {
+        "security.$": "$.reviews[0]",
+        "performance.$": "$.reviews[1]",
+        "style.$": "$.reviews[2]",
+        "tests.$": "$.reviews[3]"
+      },
+      "ResultPath": "$.aggregate",
+      "Next": "DetermineApprovalPath"
+    },
+    "DetermineApprovalPath": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.aggregate.severity",
+          "StringEquals": "critical",
+          "Next": "RequireSeniorReview"
+        },
+        {
+          "Variable": "$.aggregate.severity",
+          "StringEquals": "high",
+          "Next": "RequireTeamLeadReview"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.aggregate.severity",
+              "StringEquals": "low"
+            },
+            {
+              "Variable": "$.aggregate.passesAllChecks",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "AutoApprove"
+        }
+      ],
+      "Default": "RequireStandardReview"
+    },
+    "RequireSeniorReview": {
+      "Type": "Approval",
+      "Prompt": {
+        "Title": "Critical Issues Found - Senior Review Required",
+        "Description.$": "$.aggregate.summary",
+        "Issues.$": "$.aggregate.criticalIssues"
+      },
+      "Options": ["approve", "request_changes", "reject"],
+      "Timeout": "48h",
+      "Escalation": {
+        "After": "24h",
+        "Notify": ["tech-lead@example.com"]
+      },
+      "ResultPath": "$.approval",
+      "Choices": [
+        {
+          "Variable": "$.approval.approval",
+          "StringEquals": "approve",
+          "Next": "ApproveWithNotes"
+        },
+        {
+          "Variable": "$.approval.approval",
+          "StringEquals": "request_changes",
+          "Next": "RequestChanges"
+        }
+      ],
+      "Default": "Reject"
+    },
+    "RequireTeamLeadReview": {
+      "Type": "Approval",
+      "Prompt": {
+        "Title": "High Severity Issues - Team Lead Review",
+        "Description.$": "$.aggregate.summary"
+      },
+      "Options": ["approve", "request_changes"],
+      "Timeout": "24h",
+      "ResultPath": "$.approval",
+      "Next": "ProcessApproval"
+    },
+    "RequireStandardReview": {
+      "Type": "Approval",
+      "Prompt": {
+        "Title": "Code Review Ready",
+        "Description.$": "$.aggregate.summary"
+      },
+      "Options": ["approve", "comment", "request_changes"],
+      "Timeout": "8h",
+      "ResultPath": "$.approval",
+      "Next": "ProcessApproval"
+    },
+    "ProcessApproval": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.approval.approval",
+          "StringEquals": "approve",
+          "Next": "ApproveWithNotes"
+        },
+        {
+          "Variable": "$.approval.approval",
+          "StringEquals": "request_changes",
+          "Next": "RequestChanges"
+        }
+      ],
+      "Default": "ApproveWithNotes"
+    },
+    "AutoApprove": {
+      "Type": "Pass",
+      "Result": {
+        "decision": "auto_approved",
+        "reason": "All checks passed with low severity"
+      },
+      "ResultPath": "$.decision",
+      "Next": "FinalizeReview"
+    },
+    "ApproveWithNotes": {
+      "Type": "Pass",
+      "Parameters": {
+        "decision": "approved",
+        "approver.$": "$.approval.approver",
+        "notes.$": "$.approval.comment"
+      },
+      "ResultPath": "$.decision",
+      "Next": "FinalizeReview"
+    },
+    "RequestChanges": {
+      "Type": "Pass",
+      "Parameters": {
+        "decision": "changes_requested",
+        "issues.$": "$.aggregate.issues",
+        "reviewer.$": "$.approval.approver"
+      },
+      "ResultPath": "$.decision",
+      "Next": "FinalizeReview"
+    },
+    "Reject": {
+      "Type": "Pass",
+      "Parameters": {
+        "decision": "rejected",
+        "reason.$": "$.aggregate.criticalIssues"
+      },
+      "ResultPath": "$.decision",
+      "Next": "FinalizeReview"
+    },
+    "FinalizeReview": {
+      "Type": "Task",
+      "Agent": "ReviewFinalizer",
+      "Parameters": {
+        "files.$": "$.files",
+        "reviews.$": "$.aggregate",
+        "decision.$": "$.decision"
+      },
+      "End": true
+    }
+  }
+}

@@ -1,0 +1,753 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-state-language.org/schemas/asl-schema.json",
+  "title": "Agent State Language Schema",
+  "description": "JSON Schema for Agent State Language workflow definitions",
+  "type": "object",
+  "required": ["StartAt", "States"],
+  "properties": {
+    "Comment": {
+      "type": "string",
+      "description": "Human-readable description of the workflow"
+    },
+    "Version": {
+      "type": "string",
+      "description": "ASL version",
+      "default": "1.0"
+    },
+    "StartAt": {
+      "type": "string",
+      "description": "Name of the first state to execute"
+    },
+    "States": {
+      "type": "object",
+      "description": "Map of state names to state definitions",
+      "additionalProperties": {
+        "$ref": "#/definitions/State"
+      }
+    },
+    "Budget": {
+      "$ref": "#/definitions/WorkflowBudget"
+    },
+    "Checkpointing": {
+      "$ref": "#/definitions/CheckpointingConfig"
+    },
+    "Imports": {
+      "type": "object",
+      "description": "External workflow templates to import",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "DefaultTools": {
+      "$ref": "#/definitions/ToolsBlock"
+    },
+    "Memory": {
+      "$ref": "#/definitions/WorkflowMemory"
+    },
+    "Progress": {
+      "$ref": "#/definitions/WorkflowProgress"
+    }
+  },
+  "definitions": {
+    "State": {
+      "type": "object",
+      "required": ["Type"],
+      "properties": {
+        "Type": {
+          "type": "string",
+          "enum": ["Task", "Choice", "Map", "Parallel", "Pass", "Wait", "Succeed", "Fail", "Approval", "Debate", "Checkpoint", "Include", "Workflow"]
+        },
+        "Comment": {
+          "type": "string"
+        },
+        "InputPath": {
+          "type": "string"
+        },
+        "OutputPath": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "Type": { "const": "Task" } } },
+          "then": { "$ref": "#/definitions/TaskState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Choice" } } },
+          "then": { "$ref": "#/definitions/ChoiceState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Map" } } },
+          "then": { "$ref": "#/definitions/MapState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Parallel" } } },
+          "then": { "$ref": "#/definitions/ParallelState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Pass" } } },
+          "then": { "$ref": "#/definitions/PassState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Wait" } } },
+          "then": { "$ref": "#/definitions/WaitState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Succeed" } } },
+          "then": { "$ref": "#/definitions/SucceedState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Fail" } } },
+          "then": { "$ref": "#/definitions/FailState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Approval" } } },
+          "then": { "$ref": "#/definitions/ApprovalState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Debate" } } },
+          "then": { "$ref": "#/definitions/DebateState" }
+        },
+        {
+          "if": { "properties": { "Type": { "const": "Checkpoint" } } },
+          "then": { "$ref": "#/definitions/CheckpointState" }
+        }
+      ]
+    },
+    "TaskState": {
+      "type": "object",
+      "required": ["Agent"],
+      "properties": {
+        "Agent": {
+          "type": "string",
+          "description": "Name of the registered agent to execute"
+        },
+        "Parameters": {
+          "type": "object",
+          "description": "Parameters to pass to the agent"
+        },
+        "ResultPath": {
+          "type": ["string", "null"],
+          "description": "JSONPath where to store the result"
+        },
+        "ResultSelector": {
+          "type": "object",
+          "description": "Transform result before storing"
+        },
+        "TimeoutSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum execution time in seconds"
+        },
+        "HeartbeatSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Heartbeat interval for long-running tasks"
+        },
+        "Retry": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Retrier" }
+        },
+        "Catch": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Catcher" }
+        },
+        "Next": {
+          "type": "string"
+        },
+        "End": {
+          "type": "boolean"
+        },
+        "Memory": {
+          "$ref": "#/definitions/MemoryBlock"
+        },
+        "Context": {
+          "$ref": "#/definitions/ContextBlock"
+        },
+        "Tools": {
+          "$ref": "#/definitions/ToolsBlock"
+        },
+        "Budget": {
+          "$ref": "#/definitions/StateBudget"
+        },
+        "Guardrails": {
+          "$ref": "#/definitions/GuardrailsBlock"
+        },
+        "Reasoning": {
+          "$ref": "#/definitions/ReasoningBlock"
+        },
+        "Streaming": {
+          "$ref": "#/definitions/StreamingBlock"
+        }
+      }
+    },
+    "ChoiceState": {
+      "type": "object",
+      "required": ["Choices"],
+      "properties": {
+        "Choices": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ChoiceRule" },
+          "minItems": 1
+        },
+        "Default": {
+          "type": "string",
+          "description": "Default state if no choices match"
+        }
+      }
+    },
+    "ChoiceRule": {
+      "type": "object",
+      "required": ["Next"],
+      "properties": {
+        "Next": { "type": "string" },
+        "Variable": { "type": "string" },
+        "StringEquals": { "type": "string" },
+        "StringEqualsPath": { "type": "string" },
+        "StringGreaterThan": { "type": "string" },
+        "StringGreaterThanEquals": { "type": "string" },
+        "StringLessThan": { "type": "string" },
+        "StringLessThanEquals": { "type": "string" },
+        "StringMatches": { "type": "string" },
+        "NumericEquals": { "type": "number" },
+        "NumericEqualsPath": { "type": "string" },
+        "NumericGreaterThan": { "type": "number" },
+        "NumericGreaterThanEquals": { "type": "number" },
+        "NumericLessThan": { "type": "number" },
+        "NumericLessThanEquals": { "type": "number" },
+        "BooleanEquals": { "type": "boolean" },
+        "BooleanEqualsPath": { "type": "string" },
+        "IsNull": { "type": "boolean" },
+        "IsPresent": { "type": "boolean" },
+        "IsNumeric": { "type": "boolean" },
+        "IsString": { "type": "boolean" },
+        "IsBoolean": { "type": "boolean" },
+        "And": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ChoiceRule" }
+        },
+        "Or": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ChoiceRule" }
+        },
+        "Not": { "$ref": "#/definitions/ChoiceRule" }
+      }
+    },
+    "MapState": {
+      "type": "object",
+      "required": ["ItemsPath", "Iterator"],
+      "properties": {
+        "ItemsPath": {
+          "type": "string",
+          "description": "JSONPath to the array to iterate"
+        },
+        "Iterator": {
+          "$ref": "#/definitions/StateMachine",
+          "description": "State machine to run for each item"
+        },
+        "MaxConcurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum parallel executions"
+        },
+        "ItemSelector": {
+          "type": "object"
+        },
+        "ResultPath": {
+          "type": ["string", "null"]
+        },
+        "ResultSelector": {
+          "type": "object"
+        },
+        "Retry": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Retrier" }
+        },
+        "Catch": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Catcher" }
+        },
+        "Next": { "type": "string" },
+        "End": { "type": "boolean" }
+      }
+    },
+    "ParallelState": {
+      "type": "object",
+      "required": ["Branches"],
+      "properties": {
+        "Branches": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/StateMachine" },
+          "minItems": 1
+        },
+        "ResultPath": {
+          "type": ["string", "null"]
+        },
+        "ResultSelector": {
+          "type": "object"
+        },
+        "Retry": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Retrier" }
+        },
+        "Catch": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Catcher" }
+        },
+        "Next": { "type": "string" },
+        "End": { "type": "boolean" }
+      }
+    },
+    "PassState": {
+      "type": "object",
+      "properties": {
+        "Result": {},
+        "ResultPath": {
+          "type": ["string", "null"]
+        },
+        "Parameters": {
+          "type": "object"
+        },
+        "Next": { "type": "string" },
+        "End": { "type": "boolean" }
+      }
+    },
+    "WaitState": {
+      "type": "object",
+      "properties": {
+        "Seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "Timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "SecondsPath": {
+          "type": "string"
+        },
+        "TimestampPath": {
+          "type": "string"
+        },
+        "Next": { "type": "string" },
+        "End": { "type": "boolean" }
+      }
+    },
+    "SucceedState": {
+      "type": "object"
+    },
+    "FailState": {
+      "type": "object",
+      "properties": {
+        "Error": {
+          "type": "string",
+          "description": "Error code"
+        },
+        "Cause": {
+          "type": "string",
+          "description": "Human-readable error message"
+        }
+      }
+    },
+    "ApprovalState": {
+      "type": "object",
+      "required": ["Prompt"],
+      "properties": {
+        "Prompt": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "object" }
+          ],
+          "description": "Message shown to approver"
+        },
+        "Options": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Available choices"
+        },
+        "Timeout": {
+          "type": "string",
+          "description": "Maximum wait time"
+        },
+        "Escalation": {
+          "type": "object",
+          "properties": {
+            "After": { "type": "string" },
+            "Notify": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "ResultPath": {
+          "type": ["string", "null"]
+        },
+        "Choices": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ChoiceRule" }
+        },
+        "Default": { "type": "string" },
+        "Next": { "type": "string" }
+      }
+    },
+    "DebateState": {
+      "type": "object",
+      "required": ["Agents"],
+      "properties": {
+        "Agents": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 2
+        },
+        "Topic": { "type": "string" },
+        "TopicPath": { "type": "string" },
+        "Rounds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3
+        },
+        "Communication": {
+          "type": "object",
+          "properties": {
+            "Style": {
+              "type": "string",
+              "enum": ["turn_based", "free_form"]
+            },
+            "VisibleHistory": {
+              "type": "string",
+              "enum": ["all", "own", "none"]
+            }
+          }
+        },
+        "Consensus": {
+          "type": "object",
+          "properties": {
+            "Required": { "type": "boolean" },
+            "Arbiter": { "type": "string" },
+            "Threshold": { "type": "number" }
+          }
+        },
+        "ResultPath": { "type": ["string", "null"] },
+        "Next": { "type": "string" },
+        "End": { "type": "boolean" }
+      }
+    },
+    "CheckpointState": {
+      "type": "object",
+      "required": ["Name"],
+      "properties": {
+        "Name": {
+          "type": "string",
+          "description": "Checkpoint identifier"
+        },
+        "Storage": { "type": "string" },
+        "TTL": { "type": "string" },
+        "Next": { "type": "string" },
+        "End": { "type": "boolean" }
+      }
+    },
+    "StateMachine": {
+      "type": "object",
+      "required": ["StartAt", "States"],
+      "properties": {
+        "StartAt": { "type": "string" },
+        "States": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/State" }
+        }
+      }
+    },
+    "Retrier": {
+      "type": "object",
+      "required": ["ErrorEquals"],
+      "properties": {
+        "ErrorEquals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "IntervalSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "MaxAttempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "BackoffRate": {
+          "type": "number",
+          "minimum": 1
+        },
+        "MaxDelaySeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "JitterStrategy": {
+          "type": "string",
+          "enum": ["NONE", "FULL", "DECORRELATED"]
+        }
+      }
+    },
+    "Catcher": {
+      "type": "object",
+      "required": ["ErrorEquals", "Next"],
+      "properties": {
+        "ErrorEquals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "ResultPath": {
+          "type": ["string", "null"]
+        },
+        "Next": {
+          "type": "string"
+        }
+      }
+    },
+    "MemoryBlock": {
+      "type": "object",
+      "properties": {
+        "Read": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            {
+              "type": "object",
+              "properties": {
+                "Keys": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "InjectAt": { "type": "string" },
+                "Default": {}
+              }
+            }
+          ]
+        },
+        "Write": {
+          "type": "object",
+          "properties": {
+            "Key": { "type": "string" },
+            "Value": {},
+            "TTL": { "type": "string" },
+            "Merge": { "type": "boolean" }
+          }
+        },
+        "Namespace": { "type": "string" }
+      }
+    },
+    "ContextBlock": {
+      "type": "object",
+      "properties": {
+        "Strategy": {
+          "type": "string",
+          "enum": ["sliding_window", "priority_based", "semantic"]
+        },
+        "MaxTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "Priority": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "Include": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "Exclude": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "Summarize": {
+          "type": "object",
+          "properties": {
+            "When": {
+              "type": "string",
+              "enum": ["TokensExceed", "Always", "Never"]
+            },
+            "Using": { "type": "string" },
+            "Target": { "type": "string" },
+            "Ratio": { "type": "number" }
+          }
+        }
+      }
+    },
+    "ToolsBlock": {
+      "type": "object",
+      "properties": {
+        "Allowed": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "Denied": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "RateLimits": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "MaxPerMinute": { "type": "integer" },
+              "MaxPerHour": { "type": "integer" },
+              "MaxConcurrent": { "type": "integer" }
+            }
+          }
+        },
+        "Sandboxed": { "type": "boolean" },
+        "Timeout": { "type": "string" }
+      }
+    },
+    "StateBudget": {
+      "type": "object",
+      "properties": {
+        "MaxTokens": { "type": "integer" },
+        "MaxCost": { "type": "string" },
+        "Priority": {
+          "type": "string",
+          "enum": ["critical", "high", "normal", "low", "background"]
+        }
+      }
+    },
+    "WorkflowBudget": {
+      "type": "object",
+      "properties": {
+        "MaxTokens": { "type": "integer" },
+        "MaxCost": { "type": "string" },
+        "OnExceed": {
+          "type": "string",
+          "enum": ["Fail", "PauseAndNotify", "UseFallback", "Continue", "Throttle"]
+        },
+        "Fallback": {
+          "type": "object",
+          "properties": {
+            "When": { "type": "string" },
+            "UseModel": { "type": "string" }
+          }
+        },
+        "Alerts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "At": { "type": "string" },
+              "Notify": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "GuardrailsBlock": {
+      "type": "object",
+      "properties": {
+        "Input": {
+          "type": "object",
+          "properties": {
+            "Validator": { "type": "string" },
+            "Rules": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/GuardrailRule" }
+            },
+            "OnFail": { "type": "string" }
+          }
+        },
+        "Output": {
+          "type": "object",
+          "properties": {
+            "Validator": { "type": "string" },
+            "Rules": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/GuardrailRule" }
+            },
+            "MaxRetries": { "type": "integer" },
+            "OnFail": { "type": "string" }
+          }
+        }
+      }
+    },
+    "GuardrailRule": {
+      "type": "object",
+      "required": ["Type"],
+      "properties": {
+        "Type": {
+          "type": "string",
+          "enum": ["length", "pattern", "regex", "semantic", "pii", "custom"]
+        },
+        "Action": {
+          "type": "string",
+          "enum": ["block", "redact", "mask", "warn", "retry"]
+        }
+      }
+    },
+    "ReasoningBlock": {
+      "type": "object",
+      "properties": {
+        "Required": { "type": "boolean" },
+        "Format": {
+          "type": "string",
+          "enum": ["chain_of_thought", "tree_of_thoughts", "reflection", "free_form"]
+        },
+        "MinSteps": { "type": "integer" },
+        "MaxSteps": { "type": "integer" },
+        "Store": { "type": "string" }
+      }
+    },
+    "StreamingBlock": {
+      "type": "object",
+      "properties": {
+        "Enabled": { "type": "boolean" },
+        "Mode": {
+          "type": "string",
+          "enum": ["token", "line", "chunk", "sentence"]
+        },
+        "ChunkSize": { "type": "integer" },
+        "Callbacks": {
+          "type": "object",
+          "properties": {
+            "OnChunk": { "type": "string" },
+            "OnComplete": { "type": "string" },
+            "OnError": { "type": "string" }
+          }
+        }
+      }
+    },
+    "CheckpointingConfig": {
+      "type": "object",
+      "properties": {
+        "Enabled": { "type": "boolean" },
+        "Storage": { "type": "string" },
+        "Every": { "type": "string" },
+        "TTL": { "type": "string" }
+      }
+    },
+    "WorkflowMemory": {
+      "type": "object",
+      "properties": {
+        "Backend": {
+          "type": "string",
+          "enum": ["memory", "file", "redis", "dynamodb", "custom"]
+        },
+        "Connection": { "type": "string" },
+        "DefaultTTL": { "type": "string" },
+        "Namespace": { "type": "string" }
+      }
+    },
+    "WorkflowProgress": {
+      "type": "object",
+      "properties": {
+        "Enabled": { "type": "boolean" },
+        "TotalStates": { "type": "integer" },
+        "WeightedProgress": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        }
+      }
+    }
+  }
+}
