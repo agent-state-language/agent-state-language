@@ -212,4 +212,116 @@ class IntrinsicFunctionsTest extends TestCase
         $result = IntrinsicFunctions::evaluate("States.Array(1, 2, 3)", []);
         $this->assertEquals([1, 2, 3], $result);
     }
+
+    public function testArrayConcat(): void
+    {
+        $result = IntrinsicFunctions::evaluate(
+            'States.ArrayConcat($.arr1, $.arr2)',
+            ['arr1' => [1, 2], 'arr2' => [3, 4]]
+        );
+        $this->assertEquals([1, 2, 3, 4], $result);
+    }
+
+    public function testMathSubtract(): void
+    {
+        $result = IntrinsicFunctions::evaluate('States.MathSubtract(10, 3)', []);
+        $this->assertEquals(7, $result);
+    }
+
+    public function testMathMultiply(): void
+    {
+        $result = IntrinsicFunctions::evaluate('States.MathMultiply(5, 4)', []);
+        $this->assertEquals(20, $result);
+    }
+
+    public function testMathRandom(): void
+    {
+        $result = IntrinsicFunctions::evaluate('States.MathRandom()', []);
+        $this->assertIsFloat($result);
+        $this->assertGreaterThanOrEqual(0, $result);
+        $this->assertLessThanOrEqual(1, $result);
+    }
+
+    public function testCurrentCostWithContext(): void
+    {
+        $context = ['Execution' => ['Cost' => 0.05]];
+        $result = IntrinsicFunctions::evaluate('States.CurrentCost()', [], $context);
+        $this->assertEquals(0.05, $result);
+    }
+
+    public function testCurrentCostWithoutContext(): void
+    {
+        $result = IntrinsicFunctions::evaluate('States.CurrentCost()', []);
+        $this->assertEquals(0.0, $result);
+    }
+
+    public function testCurrentTokensWithContext(): void
+    {
+        $context = ['Execution' => ['TokensUsed' => 1500]];
+        $result = IntrinsicFunctions::evaluate('States.CurrentTokens()', [], $context);
+        $this->assertEquals(1500, $result);
+    }
+
+    public function testCurrentTokensWithoutContext(): void
+    {
+        $result = IntrinsicFunctions::evaluate('States.CurrentTokens()', []);
+        $this->assertEquals(0, $result);
+    }
+
+    public function testArrayRangeWithStep(): void
+    {
+        $result = IntrinsicFunctions::evaluate('States.ArrayRange(0, 10, 2)', []);
+        $this->assertEquals([0, 2, 4, 6, 8], $result);
+    }
+
+    public function testArrayGetItemNegativeIndex(): void
+    {
+        $result = IntrinsicFunctions::evaluate(
+            'States.ArrayGetItem($.items, -1)',
+            ['items' => ['a', 'b', 'c', 'd']]
+        );
+        $this->assertEquals('d', $result);
+    }
+
+    public function testMergeMultipleObjects(): void
+    {
+        $result = IntrinsicFunctions::evaluate(
+            'States.Merge($.a, $.b, $.c)',
+            [
+                'a' => ['name' => 'John'],
+                'b' => ['age' => 30],
+                'c' => ['city' => 'NYC']
+            ]
+        );
+        
+        $this->assertEquals(['name' => 'John', 'age' => 30, 'city' => 'NYC'], $result);
+    }
+
+    public function testPickMultipleFields(): void
+    {
+        $result = IntrinsicFunctions::evaluate(
+            "States.Pick($.obj, 'id', 'name', 'status')",
+            ['obj' => [
+                'id' => 123,
+                'name' => 'Test',
+                'status' => 'active',
+                'private' => 'secret',
+                'internal' => 'data'
+            ]]
+        );
+        $this->assertEquals(['id' => 123, 'name' => 'Test', 'status' => 'active'], $result);
+    }
+
+    public function testOmitMultipleFields(): void
+    {
+        $result = IntrinsicFunctions::evaluate(
+            "States.Omit($.obj, 'password', 'secret')",
+            ['obj' => [
+                'name' => 'John',
+                'password' => 'abc123',
+                'secret' => 'shhh'
+            ]]
+        );
+        $this->assertEquals(['name' => 'John'], $result);
+    }
 }

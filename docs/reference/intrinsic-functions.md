@@ -238,6 +238,22 @@ Returns an array with duplicate values removed.
 }
 ```
 
+### States.ArrayConcat
+
+Concatenates multiple arrays into one.
+
+**Syntax:** `States.ArrayConcat(array1, array2, ...)`
+
+**Example:**
+
+```json
+{
+  "Parameters": {
+    "allItems.$": "States.ArrayConcat($.existingItems, $.newItems)"
+  }
+}
+```
+
 ---
 
 ## Math Functions
@@ -270,6 +286,38 @@ Adds two numbers.
 {
   "Parameters": {
     "total.$": "States.MathAdd($.subtotal, $.tax)"
+  }
+}
+```
+
+### States.MathSubtract
+
+Subtracts the second number from the first.
+
+**Syntax:** `States.MathSubtract(num1, num2)`
+
+**Example:**
+
+```json
+{
+  "Parameters": {
+    "difference.$": "States.MathSubtract($.total, $.discount)"
+  }
+}
+```
+
+### States.MathMultiply
+
+Multiplies two numbers.
+
+**Syntax:** `States.MathMultiply(num1, num2)`
+
+**Example:**
+
+```json
+{
+  "Parameters": {
+    "total.$": "States.MathMultiply($.quantity, $.price)"
   }
 }
 ```

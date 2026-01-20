@@ -607,4 +607,823 @@ class DocumentationCodeTest extends TestCase
         $this->assertTrue($result->isSuccess());
         $this->assertEquals('Hello, World!', $result->getOutput()['greeting']);
     }
+
+    /**
+     * Test Tutorial 5 - Map state iteration.
+     */
+    public function testTutorial05MapState(): void
+    {
+        $itemProcessor = new class implements AgentInterface {
+            public function getName(): string { return 'ItemProcessor'; }
+            public function execute(array $parameters): array
+            {
+                // The item comes as the full input in Map iteration
+                $item = $parameters['value'] ?? $parameters['item'] ?? '';
+                if (is_array($item)) {
+                    $item = $item['value'] ?? '';
+                }
+                return [
+                    'processed' => strtoupper((string) $item),
+                    'length' => strlen((string) $item)
+                ];
+            }
+        };
+
+        $registry = new AgentRegistry();
+        $registry->register('ItemProcessor', $itemProcessor);
+
+        $workflow = [
+            'Comment' => 'Process each item in a list',
+            'StartAt' => 'ProcessItems',
+            'States' => [
+                'ProcessItems' => [
+                    'Type' => 'Map',
+                    'ItemsPath' => '$.items',
+                    'Iterator' => [
+                        'StartAt' => 'ProcessOne',
+                        'States' => [
+                            'ProcessOne' => [
+                                'Type' => 'Task',
+                                'Agent' => 'ItemProcessor',
+                                'Parameters' => [
+                                    'value.$' => '$.value'
+                                ],
+                                'End' => true
+                            ]
+                        ]
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run(['items' => [
+            ['value' => 'apple'],
+            ['value' => 'banana'],
+            ['value' => 'cherry']
+        ]]);
+
+        $this->assertTrue($result->isSuccess());
+        $output = $result->getOutput();
+        $this->assertCount(3, $output);
+        $this->assertEquals('APPLE', $output[0]['processed']);
+        $this->assertEquals('BANANA', $output[1]['processed']);
+        $this->assertEquals('CHERRY', $output[2]['processed']);
+    }
+
+    /**
+     * Test Tutorial 6 - Memory and Context concepts.
+     * This tests the workflow structure validation (Memory/Context are config blocks).
+     */
+    public function testTutorial06MemoryWorkflowStructure(): void
+    {
+        $mockAgent = new class implements AgentInterface {
+            public function getName(): string { return 'MockAgent'; }
+            public function execute(array $parameters): array
+            {
+                return ['processed' => true, 'data' => $parameters];
+            }
+        };
+
+        $registry = new AgentRegistry();
+        $registry->register('ContextLoader', $mockAgent);
+        $registry->register('Assistant', $mockAgent);
+        $registry->register('HistoryUpdater', $mockAgent);
+
+        // Test that a workflow with Memory block structure is valid
+        $workflow = [
+            'Comment' => 'Memory-enabled workflow',
+            'StartAt' => 'LoadContext',
+            'States' => [
+                'LoadContext' => [
+                    'Type' => 'Task',
+                    'Agent' => 'ContextLoader',
+                    'Parameters' => [
+                        'userId.$' => '$.userId'
+                    ],
+                    'ResultPath' => '$.userContext',
+                    'Next' => 'ProcessRequest'
+                ],
+                'ProcessRequest' => [
+                    'Type' => 'Task',
+                    'Agent' => 'Assistant',
+                    'Parameters' => [
+                        'message.$' => '$.message',
+                        'context.$' => '$.userContext'
+                    ],
+                    'ResultPath' => '$.response',
+                    'Next' => 'UpdateHistory'
+                ],
+                'UpdateHistory' => [
+                    'Type' => 'Task',
+                    'Agent' => 'HistoryUpdater',
+                    'Parameters' => [
+                        'response.$' => '$.response'
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run([
+            'userId' => 'user_123',
+            'message' => 'Hello, how are you?'
+        ]);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertArrayHasKey('processed', $result->getOutput());
+    }
+
+    /**
+     * Test Tutorial 7 - Tool orchestration patterns.
+     */
+    public function testTutorial07ToolOrchestration(): void
+    {
+        $toolAgent = new class implements AgentInterface {
+            public function getName(): string { return 'ToolAgent'; }
+            public function execute(array $parameters): array
+            {
+                $tool = $parameters['tool'] ?? 'unknown';
+                return [
+                    'toolUsed' => $tool,
+                    'result' => 'success',
+                    'output' => 'Tool output for ' . $tool
+                ];
+            }
+        };
+
+        $registry = new AgentRegistry();
+        $registry->register('FileAnalyzer', $toolAgent);
+        $registry->register('CodeSearcher', $toolAgent);
+
+        $workflow = [
+            'Comment' => 'Tool orchestration workflow',
+            'StartAt' => 'AnalyzeFiles',
+            'States' => [
+                'AnalyzeFiles' => [
+                    'Type' => 'Task',
+                    'Agent' => 'FileAnalyzer',
+                    'Parameters' => [
+                        'tool' => 'file_read',
+                        'path.$' => '$.filePath'
+                    ],
+                    'ResultPath' => '$.fileAnalysis',
+                    'Next' => 'SearchCode'
+                ],
+                'SearchCode' => [
+                    'Type' => 'Task',
+                    'Agent' => 'CodeSearcher',
+                    'Parameters' => [
+                        'tool' => 'code_search',
+                        'pattern.$' => '$.searchPattern'
+                    ],
+                    'ResultPath' => '$.searchResults',
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run([
+            'filePath' => '/src/main.php',
+            'searchPattern' => 'function.*execute'
+        ]);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertArrayHasKey('searchResults', $result->getOutput());
+        $this->assertEquals('code_search', $result->getOutput()['searchResults']['toolUsed']);
+    }
+
+    /**
+     * Test Tutorial 8 - Human approval patterns (structure validation).
+     */
+    public function testTutorial08ApprovalWorkflowStructure(): void
+    {
+        $mockAgent = new class implements AgentInterface {
+            public function getName(): string { return 'MockAgent'; }
+            public function execute(array $parameters): array
+            {
+                // Simulate an auto-approval scenario for testing
+                return [
+                    'needsApproval' => false,
+                    'autoApproved' => true,
+                    'reason' => 'Amount under threshold'
+                ];
+            }
+        };
+
+        $registry = new AgentRegistry();
+        $registry->register('RefundProcessor', $mockAgent);
+        $registry->register('ApprovalChecker', $mockAgent);
+        $registry->register('RefundExecutor', $mockAgent);
+
+        $workflow = [
+            'Comment' => 'Refund approval workflow',
+            'StartAt' => 'CheckApproval',
+            'States' => [
+                'CheckApproval' => [
+                    'Type' => 'Task',
+                    'Agent' => 'ApprovalChecker',
+                    'Parameters' => [
+                        'amount.$' => '$.amount',
+                        'reason.$' => '$.reason'
+                    ],
+                    'ResultPath' => '$.approvalCheck',
+                    'Next' => 'RouteApproval'
+                ],
+                'RouteApproval' => [
+                    'Type' => 'Choice',
+                    'Choices' => [
+                        [
+                            'Variable' => '$.approvalCheck.autoApproved',
+                            'BooleanEquals' => true,
+                            'Next' => 'ProcessRefund'
+                        ]
+                    ],
+                    'Default' => 'PendingApproval'
+                ],
+                'PendingApproval' => [
+                    'Type' => 'Pass',
+                    'Result' => ['status' => 'pending_approval'],
+                    'End' => true
+                ],
+                'ProcessRefund' => [
+                    'Type' => 'Task',
+                    'Agent' => 'RefundExecutor',
+                    'Parameters' => [
+                        'amount.$' => '$.amount'
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run([
+            'amount' => 25.00,
+            'reason' => 'Product defective'
+        ]);
+
+        $this->assertTrue($result->isSuccess());
+    }
+
+    /**
+     * Test Tutorial 9 - Multi-agent debate pattern.
+     */
+    public function testTutorial09MultiAgentDebate(): void
+    {
+        $agent1 = new class implements AgentInterface {
+            public function getName(): string { return 'Agent1'; }
+            public function execute(array $parameters): array
+            {
+                return [
+                    'position' => 'Option A is better because of efficiency',
+                    'confidence' => 0.8
+                ];
+            }
+        };
+
+        $agent2 = new class implements AgentInterface {
+            public function getName(): string { return 'Agent2'; }
+            public function execute(array $parameters): array
+            {
+                return [
+                    'position' => 'Option B is better because of cost',
+                    'confidence' => 0.7
+                ];
+            }
+        };
+
+        $mediator = new class implements AgentInterface {
+            public function getName(): string { return 'Mediator'; }
+            public function execute(array $parameters): array
+            {
+                $positions = $parameters['positions'] ?? [];
+                return [
+                    'consensus' => 'Option A with cost considerations',
+                    'summary' => 'Both perspectives considered',
+                    'finalConfidence' => 0.85
+                ];
+            }
+        };
+
+        $registry = new AgentRegistry();
+        $registry->register('Analyst1', $agent1);
+        $registry->register('Analyst2', $agent2);
+        $registry->register('Mediator', $mediator);
+
+        // Simulated debate workflow using Parallel state
+        $workflow = [
+            'Comment' => 'Multi-agent analysis workflow',
+            'StartAt' => 'GatherPerspectives',
+            'States' => [
+                'GatherPerspectives' => [
+                    'Type' => 'Parallel',
+                    'Branches' => [
+                        [
+                            'StartAt' => 'Analyst1Analysis',
+                            'States' => [
+                                'Analyst1Analysis' => [
+                                    'Type' => 'Task',
+                                    'Agent' => 'Analyst1',
+                                    'Parameters' => [
+                                        'topic.$' => '$.topic'
+                                    ],
+                                    'End' => true
+                                ]
+                            ]
+                        ],
+                        [
+                            'StartAt' => 'Analyst2Analysis',
+                            'States' => [
+                                'Analyst2Analysis' => [
+                                    'Type' => 'Task',
+                                    'Agent' => 'Analyst2',
+                                    'Parameters' => [
+                                        'topic.$' => '$.topic'
+                                    ],
+                                    'End' => true
+                                ]
+                            ]
+                        ]
+                    ],
+                    'ResultPath' => '$.positions',
+                    'Next' => 'SynthesizeConsensus'
+                ],
+                'SynthesizeConsensus' => [
+                    'Type' => 'Task',
+                    'Agent' => 'Mediator',
+                    'Parameters' => [
+                        'positions.$' => '$.positions'
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run(['topic' => 'Cloud provider selection']);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertArrayHasKey('consensus', $result->getOutput());
+    }
+
+    /**
+     * Test Tutorial 10 - Cost management patterns.
+     */
+    public function testTutorial10CostManagement(): void
+    {
+        $cheapAgent = new class implements AgentInterface {
+            public function getName(): string { return 'CheapAgent'; }
+            public function execute(array $parameters): array
+            {
+                return [
+                    'result' => 'Processed with budget model',
+                    'tokensUsed' => 100,
+                    'cost' => 0.001
+                ];
+            }
+        };
+
+        $registry = new AgentRegistry();
+        $registry->register('BudgetProcessor', $cheapAgent);
+        $registry->register('StandardProcessor', $cheapAgent);
+
+        $workflow = [
+            'Comment' => 'Cost-aware workflow',
+            'StartAt' => 'CheckBudget',
+            'States' => [
+                'CheckBudget' => [
+                    'Type' => 'Pass',
+                    'Parameters' => [
+                        'budget' => 0.10,
+                        'data.$' => '$.inputData'
+                    ],
+                    'ResultPath' => '$.context',
+                    'Next' => 'Process'
+                ],
+                'Process' => [
+                    'Type' => 'Task',
+                    'Agent' => 'BudgetProcessor',
+                    'Parameters' => [
+                        'data.$' => '$.context.data'
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run(['inputData' => 'Test content to process']);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertArrayHasKey('tokensUsed', $result->getOutput());
+    }
+
+    /**
+     * Test Tutorial 11 - Error handling patterns (retry simulation).
+     */
+    public function testTutorial11ErrorHandlingRetry(): void
+    {
+        $counter = 0;
+        $flakyAgent = new class implements AgentInterface {
+            public function getName(): string { return 'FlakyAgent'; }
+            public function execute(array $parameters): array
+            {
+                // Simulate eventual success
+                return [
+                    'success' => true,
+                    'message' => 'Operation completed'
+                ];
+            }
+        };
+
+        $registry = new AgentRegistry();
+        $registry->register('FlakyService', $flakyAgent);
+        $registry->register('FallbackService', $flakyAgent);
+
+        $workflow = [
+            'Comment' => 'Error handling workflow',
+            'StartAt' => 'TryOperation',
+            'States' => [
+                'TryOperation' => [
+                    'Type' => 'Task',
+                    'Agent' => 'FlakyService',
+                    'Parameters' => [
+                        'action.$' => '$.action'
+                    ],
+                    'Catch' => [
+                        [
+                            'ErrorEquals' => ['States.ALL'],
+                            'Next' => 'HandleError',
+                            'ResultPath' => '$.error'
+                        ]
+                    ],
+                    'End' => true
+                ],
+                'HandleError' => [
+                    'Type' => 'Task',
+                    'Agent' => 'FallbackService',
+                    'Parameters' => [
+                        'originalError.$' => '$.error'
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run(['action' => 'process_data']);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertEquals(true, $result->getOutput()['success']);
+    }
+
+    /**
+     * Test Tutorial 12 - Building reusable workflow patterns.
+     */
+    public function testTutorial12ReusablePatterns(): void
+    {
+        $mockAgent = new class implements AgentInterface {
+            public function getName(): string { return 'MockAgent'; }
+            public function execute(array $parameters): array
+            {
+                return [
+                    'processed' => true,
+                    'input' => $parameters
+                ];
+            }
+        };
+
+        $registry = new AgentRegistry();
+        $registry->register('DataValidator', $mockAgent);
+        $registry->register('DataTransformer', $mockAgent);
+        $registry->register('DataLoader', $mockAgent);
+
+        // Common ETL pattern
+        $workflow = [
+            'Comment' => 'ETL Pipeline Template',
+            'StartAt' => 'Validate',
+            'States' => [
+                'Validate' => [
+                    'Type' => 'Task',
+                    'Agent' => 'DataValidator',
+                    'Parameters' => [
+                        'data.$' => '$.rawData',
+                        'schema.$' => '$.schema'
+                    ],
+                    'ResultPath' => '$.validation',
+                    'Next' => 'Transform'
+                ],
+                'Transform' => [
+                    'Type' => 'Task',
+                    'Agent' => 'DataTransformer',
+                    'Parameters' => [
+                        'data.$' => '$.rawData',
+                        'rules.$' => '$.transformRules'
+                    ],
+                    'ResultPath' => '$.transformed',
+                    'Next' => 'Load'
+                ],
+                'Load' => [
+                    'Type' => 'Task',
+                    'Agent' => 'DataLoader',
+                    'Parameters' => [
+                        'data.$' => '$.transformed',
+                        'destination.$' => '$.destination'
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run([
+            'rawData' => ['id' => 1, 'name' => 'Test'],
+            'schema' => 'user_schema',
+            'transformRules' => ['uppercase_name'],
+            'destination' => 'users_table'
+        ]);
+
+        $this->assertTrue($result->isSuccess());
+    }
+
+    /**
+     * Test State Types Reference - Pass state.
+     */
+    public function testStateTypesReferencePassState(): void
+    {
+        $workflow = [
+            'StartAt' => 'InjectData',
+            'States' => [
+                'InjectData' => [
+                    'Type' => 'Pass',
+                    'Result' => [
+                        'status' => 'initialized',
+                        'timestamp' => '2025-01-20T00:00:00Z'
+                    ],
+                    'ResultPath' => '$.metadata',
+                    'Next' => 'TransformData'
+                ],
+                'TransformData' => [
+                    'Type' => 'Pass',
+                    'Parameters' => [
+                        'combined' => true,
+                        'input.$' => '$.inputValue',
+                        'meta.$' => '$.metadata'
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $registry = new AgentRegistry();
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run(['inputValue' => 'test_data']);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertTrue($result->getOutput()['combined']);
+        $this->assertEquals('test_data', $result->getOutput()['input']);
+        $this->assertEquals('initialized', $result->getOutput()['meta']['status']);
+    }
+
+    /**
+     * Test State Types Reference - Choice state with multiple conditions.
+     */
+    public function testStateTypesReferenceChoiceState(): void
+    {
+        $workflow = [
+            'StartAt' => 'RouteByType',
+            'States' => [
+                'RouteByType' => [
+                    'Type' => 'Choice',
+                    'Choices' => [
+                        [
+                            'Variable' => '$.type',
+                            'StringEquals' => 'premium',
+                            'Next' => 'PremiumPath'
+                        ],
+                        [
+                            'Variable' => '$.type',
+                            'StringEquals' => 'standard',
+                            'Next' => 'StandardPath'
+                        ],
+                        [
+                            'And' => [
+                                ['Variable' => '$.type', 'StringEquals' => 'trial'],
+                                ['Variable' => '$.daysRemaining', 'NumericGreaterThan' => 0]
+                            ],
+                            'Next' => 'TrialPath'
+                        ]
+                    ],
+                    'Default' => 'DefaultPath'
+                ],
+                'PremiumPath' => [
+                    'Type' => 'Pass',
+                    'Result' => ['tier' => 'premium', 'features' => 'all'],
+                    'End' => true
+                ],
+                'StandardPath' => [
+                    'Type' => 'Pass',
+                    'Result' => ['tier' => 'standard', 'features' => 'basic'],
+                    'End' => true
+                ],
+                'TrialPath' => [
+                    'Type' => 'Pass',
+                    'Result' => ['tier' => 'trial', 'features' => 'limited'],
+                    'End' => true
+                ],
+                'DefaultPath' => [
+                    'Type' => 'Pass',
+                    'Result' => ['tier' => 'free', 'features' => 'none'],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $registry = new AgentRegistry();
+        $engine = new WorkflowEngine($workflow, $registry);
+
+        // Test premium path
+        $result = $engine->run(['type' => 'premium']);
+        $this->assertEquals('premium', $result->getOutput()['tier']);
+
+        // Test standard path
+        $result = $engine->run(['type' => 'standard']);
+        $this->assertEquals('standard', $result->getOutput()['tier']);
+
+        // Test trial path with And condition
+        $result = $engine->run(['type' => 'trial', 'daysRemaining' => 7]);
+        $this->assertEquals('trial', $result->getOutput()['tier']);
+
+        // Test default path
+        $result = $engine->run(['type' => 'unknown']);
+        $this->assertEquals('free', $result->getOutput()['tier']);
+    }
+
+    /**
+     * Test State Types Reference - Succeed and Fail states.
+     */
+    public function testStateTypesReferenceSucceedAndFailStates(): void
+    {
+        $workflow = [
+            'StartAt' => 'CheckCondition',
+            'States' => [
+                'CheckCondition' => [
+                    'Type' => 'Choice',
+                    'Choices' => [
+                        [
+                            'Variable' => '$.valid',
+                            'BooleanEquals' => true,
+                            'Next' => 'Success'
+                        ]
+                    ],
+                    'Default' => 'Failure'
+                ],
+                'Success' => [
+                    'Type' => 'Succeed'
+                ],
+                'Failure' => [
+                    'Type' => 'Fail',
+                    'Error' => 'ValidationError',
+                    'Cause' => 'Input validation failed'
+                ]
+            ]
+        ];
+
+        $registry = new AgentRegistry();
+        $engine = new WorkflowEngine($workflow, $registry);
+
+        // Test success path
+        $result = $engine->run(['valid' => true]);
+        $this->assertTrue($result->isSuccess());
+
+        // Test failure path
+        $result = $engine->run(['valid' => false]);
+        $this->assertFalse($result->isSuccess());
+        $this->assertEquals('ValidationError', $result->getError());
+    }
+
+    /**
+     * Test intrinsic functions from reference - comprehensive examples.
+     */
+    public function testIntrinsicFunctionsReferenceComprehensive(): void
+    {
+        $workflow = [
+            'StartAt' => 'TestAllFunctions',
+            'States' => [
+                'TestAllFunctions' => [
+                    'Type' => 'Pass',
+                    'Parameters' => [
+                        'formatted.$' => "States.Format('User {} has {} items', $.userName, $.itemCount)",
+                        'arrayLen.$' => 'States.ArrayLength($.items)',
+                        'uuid.$' => 'States.UUID()',
+                        'sum.$' => 'States.MathAdd($.a, $.b)',
+                        'merged.$' => 'States.Merge($.obj1, $.obj2)'
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $registry = new AgentRegistry();
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run([
+            'userName' => 'Alice',
+            'itemCount' => 5,
+            'items' => [1, 2, 3],
+            'a' => 10,
+            'b' => 20,
+            'obj1' => ['name' => 'Test'],
+            'obj2' => ['value' => 123]
+        ]);
+
+        $this->assertTrue($result->isSuccess());
+        $output = $result->getOutput();
+        
+        $this->assertEquals('User Alice has 5 items', $output['formatted']);
+        $this->assertEquals(3, $output['arrayLen']);
+        $this->assertMatchesRegularExpression('/^[0-9a-f-]{36}$/i', $output['uuid']);
+        $this->assertEquals(30, $output['sum']);
+        $this->assertEquals(['name' => 'Test', 'value' => 123], $output['merged']);
+    }
+
+    /**
+     * Test best practices guide - modular workflow design.
+     */
+    public function testBestPracticesModularDesign(): void
+    {
+        $mockAgent = new class implements AgentInterface {
+            public function getName(): string { return 'ModularAgent'; }
+            public function execute(array $parameters): array
+            {
+                return ['step' => $parameters['stepName'] ?? 'unknown', 'completed' => true];
+            }
+        };
+
+        $registry = new AgentRegistry();
+        $registry->register('Step1Agent', $mockAgent);
+        $registry->register('Step2Agent', $mockAgent);
+        $registry->register('Step3Agent', $mockAgent);
+
+        // Modular workflow with clear separation
+        $workflow = [
+            'Comment' => 'Modular design pattern',
+            'StartAt' => 'Initialize',
+            'States' => [
+                'Initialize' => [
+                    'Type' => 'Pass',
+                    'Parameters' => [
+                        'workflow' => 'modular_test',
+                        'startTime.$' => '$.timestamp'
+                    ],
+                    'ResultPath' => '$.context',
+                    'Next' => 'Step1'
+                ],
+                'Step1' => [
+                    'Type' => 'Task',
+                    'Agent' => 'Step1Agent',
+                    'Parameters' => ['stepName' => 'step1'],
+                    'ResultPath' => '$.step1Result',
+                    'Next' => 'Step2'
+                ],
+                'Step2' => [
+                    'Type' => 'Task',
+                    'Agent' => 'Step2Agent',
+                    'Parameters' => ['stepName' => 'step2'],
+                    'ResultPath' => '$.step2Result',
+                    'Next' => 'Step3'
+                ],
+                'Step3' => [
+                    'Type' => 'Task',
+                    'Agent' => 'Step3Agent',
+                    'Parameters' => ['stepName' => 'step3'],
+                    'ResultPath' => '$.step3Result',
+                    'Next' => 'Finalize'
+                ],
+                'Finalize' => [
+                    'Type' => 'Pass',
+                    'Parameters' => [
+                        'allStepsComplete' => true,
+                        'step1.$' => '$.step1Result',
+                        'step2.$' => '$.step2Result',
+                        'step3.$' => '$.step3Result'
+                    ],
+                    'End' => true
+                ]
+            ]
+        ];
+
+        $engine = new WorkflowEngine($workflow, $registry);
+        $result = $engine->run(['timestamp' => '2025-01-20T12:00:00Z']);
+
+        $this->assertTrue($result->isSuccess());
+        $output = $result->getOutput();
+        $this->assertTrue($output['allStepsComplete']);
+        $this->assertEquals('step1', $output['step1']['step']);
+        $this->assertEquals('step2', $output['step2']['step']);
+        $this->assertEquals('step3', $output['step3']['step']);
+    }
 }

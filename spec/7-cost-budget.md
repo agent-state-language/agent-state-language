@@ -146,7 +146,7 @@ Switch to cheaper models when budget is constrained:
     "MaxCost": "$5.00",
     "Fallback": {
       "When": "BudgetAt80Percent",
-      "UseModel": "claude-3-haiku",
+      "UseModel": "claude-haiku-4-5",
       "Notify": true
     }
   }

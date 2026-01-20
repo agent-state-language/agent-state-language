@@ -196,6 +196,8 @@ echo $result->getOutput(); // "Hello, Alice!"
 
 ## Tutorial Path
 
+### Core Tutorials
+
 1. [Hello World](docs/tutorials/01-hello-world.md) - Your first workflow
 2. [Simple Workflow](docs/tutorials/02-simple-workflow.md) - Sequential states
 3. [Conditional Logic](docs/tutorials/03-conditional-logic.md) - Choice states
@@ -208,6 +210,14 @@ echo $result->getOutput(); // "Hello, Alice!"
 10. [Cost Management](docs/tutorials/10-cost-management.md) - Budget controls
 11. [Error Handling](docs/tutorials/11-error-handling.md) - Retry and catch
 12. [Building Skills](docs/tutorials/12-building-skills.md) - Composition patterns
+
+### claude-php-agent Integration
+
+13. [Integrating Claude PHP Agent](docs/tutorials/13-integrating-claude-php-agent.md) - Wrapper pattern for ASL
+14. [Tool-Enabled Agent Workflows](docs/tutorials/14-tool-enabled-agent-workflows.md) - Tools in workflows
+15. [Multi-Agent Orchestration](docs/tutorials/15-multi-agent-orchestration.md) - Parallel agent execution
+16. [Loop Strategies in Workflows](docs/tutorials/16-loop-strategies-in-workflows.md) - ReAct, Reflection, Plan-Execute
+17. [RAG-Enhanced Workflows](docs/tutorials/17-rag-enhanced-workflows.md) - Knowledge-augmented agents
 
 ## Requirements
 
@@ -224,5 +234,33 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 ## Related Projects
 
-- [claude-php-agent](https://github.com/your-org/claude-php-agent) - PHP agent framework
+- [claude-php-agent](https://github.com/claude-php/claude-php-agent) - PHP agent framework with ReAct, Reflection, and Plan-Execute loops
+- [Claude PHP SDK](https://github.com/claude-php/claude-php-sdk) - Low-level PHP SDK for Claude API
 - [AWS Step Functions](https://aws.amazon.com/step-functions/) - Inspiration for ASL
+
+## Integration with claude-php-agent
+
+ASL can be combined with claude-php-agent for advanced AI agent workflows:
+
+```php
+use AgentStateLanguage\Engine\WorkflowEngine;
+use AgentStateLanguage\Agents\AgentRegistry;
+use ClaudeAgents\Agent;
+use ClaudePhp\ClaudePhp;
+
+// Create a claude-php-agent wrapped for ASL
+$client = ClaudePhp::make(getenv('ANTHROPIC_API_KEY'));
+$agent = Agent::create($client)
+    ->withSystemPrompt('You are a helpful assistant.')
+    ->withTools([...]);
+
+// Register with ASL
+$registry = new AgentRegistry();
+$registry->register('Assistant', new ClaudeAgentAdapter('Assistant', $agent));
+
+// Run workflow with advanced agent capabilities
+$engine = WorkflowEngine::fromFile('workflow.asl.json', $registry);
+$result = $engine->run(['task' => 'Analyze this code...']);
+```
+
+See [Tutorial 13: Integrating Claude PHP Agent](docs/tutorials/13-integrating-claude-php-agent.md) for complete integration guide.

@@ -43,6 +43,7 @@ class IntrinsicFunctions
             'Array' => self::array($args),
             'ArrayPartition' => self::arrayPartition($args),
             'ArrayContains' => self::arrayContains($args),
+            'ArrayConcat' => self::arrayConcat($args),
             'ArrayGetItem' => self::arrayGetItem($args),
             'ArrayLength' => self::arrayLength($args),
             'ArrayRange' => self::arrayRange($args),
@@ -53,11 +54,15 @@ class IntrinsicFunctions
             'Base64Decode' => self::base64Decode($args),
             'MathRandom' => self::mathRandom(),
             'MathAdd' => self::mathAdd($args),
+            'MathSubtract' => self::mathSubtract($args),
+            'MathMultiply' => self::mathMultiply($args),
             'TokenCount' => self::tokenCount($args),
             'Truncate' => self::truncate($args),
             'Merge' => self::merge($args),
             'Pick' => self::pick($args),
             'Omit' => self::omit($args),
+            'CurrentCost' => self::currentCost($context),
+            'CurrentTokens' => self::currentTokens($context),
             default => throw new ASLException(
                 "Unknown intrinsic function: States.{$functionName}",
                 'States.IntrinsicFailure'
@@ -624,5 +629,98 @@ class IntrinsicFunctions
         $fieldsToOmit = array_map('strval', $args);
 
         return array_diff_key($object, array_flip($fieldsToOmit));
+    }
+
+    /**
+     * States.ArrayConcat - Concatenate arrays.
+     *
+     * @param array<mixed> $args
+     * @return array<mixed>
+     */
+    private static function arrayConcat(array $args): array
+    {
+        $result = [];
+
+        foreach ($args as $arg) {
+            if (is_array($arg)) {
+                $result = array_merge($result, $arg);
+            } else {
+                $result[] = $arg;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * States.MathSubtract - Subtract two numbers.
+     *
+     * @param array<mixed> $args
+     * @return float|int
+     */
+    private static function mathSubtract(array $args): float|int
+    {
+        if (count($args) !== 2) {
+            throw new ASLException(
+                'States.MathSubtract requires exactly 2 arguments',
+                'States.IntrinsicFailure'
+            );
+        }
+
+        $a = is_numeric($args[0]) ? $args[0] : 0;
+        $b = is_numeric($args[1]) ? $args[1] : 0;
+
+        return $a - $b;
+    }
+
+    /**
+     * States.MathMultiply - Multiply two numbers.
+     *
+     * @param array<mixed> $args
+     * @return float|int
+     */
+    private static function mathMultiply(array $args): float|int
+    {
+        if (count($args) !== 2) {
+            throw new ASLException(
+                'States.MathMultiply requires exactly 2 arguments',
+                'States.IntrinsicFailure'
+            );
+        }
+
+        $a = is_numeric($args[0]) ? $args[0] : 0;
+        $b = is_numeric($args[1]) ? $args[1] : 0;
+
+        return $a * $b;
+    }
+
+    /**
+     * States.CurrentCost - Get current workflow execution cost.
+     *
+     * @param array<string, mixed>|null $context
+     * @return float
+     */
+    private static function currentCost(?array $context): float
+    {
+        if ($context === null) {
+            return 0.0;
+        }
+
+        return (float) ($context['Execution']['Cost'] ?? 0.0);
+    }
+
+    /**
+     * States.CurrentTokens - Get total tokens used in execution.
+     *
+     * @param array<string, mixed>|null $context
+     * @return int
+     */
+    private static function currentTokens(?array $context): int
+    {
+        if ($context === null) {
+            return 0;
+        }
+
+        return (int) ($context['Execution']['TokensUsed'] ?? 0);
     }
 }
