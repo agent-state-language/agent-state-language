@@ -415,15 +415,318 @@ foreach ($result->getTrace() as $entry) {
 }
 ```
 
-## Step 5: Simulating Approval (Testing)
+## Step 5: Implementing an Approval Handler
 
-For testing, you can create a mock approval handler:
+In production, you need to integrate with your application's approval system. Implement the `ApprovalHandlerInterface`:
 
 ```php
 <?php
 
-// Mock approval provider for testing
-class MockApprovalProvider
+namespace MyOrg\ContentReview;
+
+use AgentStateLanguage\Handlers\ApprovalHandlerInterface;
+
+/**
+ * Database-backed approval handler that pauses workflows
+ * and resumes when humans provide input via API.
+ */
+class DatabaseApprovalHandler implements ApprovalHandlerInterface
+{
+    private PDO $db;
+    
+    public function __construct(PDO $db)
+    {
+        $this->db = $db;
+    }
+    
+    /**
+     * Request approval from a human.
+     * 
+     * Returns null to pause workflow, or returns a decision array
+     * if approval is already available (e.g., from a previous request).
+     */
+    public function requestApproval(array $request): ?array
+    {
+        $stateName = $request['state'];
+        
+        // Check if we already have a decision for this state
+        $existing = $this->findExistingDecision($stateName, $request);
+        if ($existing !== null) {
+            return $existing;
+        }
+        
+        // Create a pending approval request
+        $this->createApprovalRequest($request);
+        
+        // Send notifications
+        $this->notifyApprovers($request);
+        
+        // Return null to pause the workflow
+        return null;
+    }
+    
+    private function findExistingDecision(string $stateName, array $request): ?array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT * FROM approval_decisions 
+             WHERE state_name = ? AND status = "completed" 
+             ORDER BY created_at DESC LIMIT 1'
+        );
+        $stmt->execute([$stateName]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($row) {
+            return [
+                'approval' => $row['decision'],
+                'approver' => $row['approver_email'],
+                'timestamp' => $row['decided_at'],
+                'comment' => $row['comment'],
+            ];
+        }
+        
+        return null;
+    }
+    
+    private function createApprovalRequest(array $request): void
+    {
+        $stmt = $this->db->prepare(
+            'INSERT INTO approval_requests 
+             (state_name, prompt, options, timeout, created_at) 
+             VALUES (?, ?, ?, ?, NOW())'
+        );
+        $stmt->execute([
+            $request['state'],
+            $request['prompt'],
+            json_encode($request['options']),
+            $request['timeout'] ?? '24h',
+        ]);
+    }
+    
+    private function notifyApprovers(array $request): void
+    {
+        // Send email, Slack, etc.
+        // ...
+    }
+}
+```
+
+### Registering the Handler
+
+```php
+<?php
+
+use AgentStateLanguage\Engine\WorkflowEngine;
+use AgentStateLanguage\Agents\AgentRegistry;
+use MyOrg\ContentReview\DatabaseApprovalHandler;
+
+$registry = new AgentRegistry();
+// ... register agents ...
+
+$engine = WorkflowEngine::fromFile('content-review.asl.json', $registry);
+
+// Set up the approval handler
+$approvalHandler = new DatabaseApprovalHandler($pdo);
+$engine->setApprovalHandler($approvalHandler);
+
+// Run the workflow
+$result = $engine->run([
+    'topic' => 'Machine Learning',
+    'contentType' => 'article',
+    'tone' => 'professional',
+]);
+```
+
+## Step 6: Handling Paused Workflows
+
+When a workflow pauses at an approval state, you get a special result:
+
+```php
+<?php
+
+$result = $engine->run($input);
+
+if ($result->isPaused()) {
+    // Workflow is waiting for human input
+    $pausedState = $result->getPausedAtState();
+    $checkpointData = $result->getCheckpointData();
+    $pendingInput = $result->getPendingInput();
+    
+    echo "Workflow paused at: {$pausedState}\n";
+    echo "Waiting for: {$pendingInput['type']}\n";
+    echo "Prompt: {$pendingInput['prompt']}\n";
+    echo "Options: " . implode(', ', $pendingInput['options']) . "\n";
+    
+    // Store the checkpoint data for later resumption
+    $workflowId = saveWorkflowState($pausedState, $checkpointData);
+    
+    // Return pending status to your application
+    return [
+        'status' => 'pending_approval',
+        'workflow_id' => $workflowId,
+        'approval_prompt' => $pendingInput['prompt'],
+        'options' => $pendingInput['options'],
+    ];
+}
+
+if ($result->isSuccess()) {
+    echo "Workflow completed successfully\n";
+}
+```
+
+## Step 7: Resuming Workflows
+
+When a human provides their decision, resume the workflow:
+
+```php
+<?php
+
+use AgentStateLanguage\Engine\WorkflowEngine;
+
+// Load the saved state
+$savedState = loadWorkflowState($workflowId);
+$checkpointData = $savedState['checkpoint_data'];
+$pausedAtState = $savedState['paused_at_state'];
+
+// Create the engine
+$engine = WorkflowEngine::fromFile('content-review.asl.json', $registry);
+
+// Resume with the human's decision
+$result = $engine->run(
+    $checkpointData,              // Original input state
+    $pausedAtState,               // Resume from this state
+    [                             // Resume data with decision
+        'approval' => 'approve',
+        'approver' => 'editor@example.com',
+        'comment' => 'Looks great, ready to publish!',
+        'timestamp' => date('c'),
+    ]
+);
+
+if ($result->isSuccess()) {
+    echo "Workflow completed: " . json_encode($result->getOutput()) . "\n";
+} elseif ($result->isPaused()) {
+    // Another approval needed
+    echo "Workflow paused again at: " . $result->getPausedAtState() . "\n";
+}
+```
+
+## Step 8: Using Lifecycle Callbacks
+
+Track workflow progress with state lifecycle callbacks:
+
+```php
+<?php
+
+$engine = WorkflowEngine::fromFile('content-review.asl.json', $registry);
+
+// Track when states are entered
+$engine->onStateEnter(function (string $stateName, array $checkpointData) {
+    echo "[ENTER] State: {$stateName}\n";
+    
+    // Log to your monitoring system
+    $this->logger->info("Entering state", [
+        'state' => $stateName,
+        'input_keys' => array_keys($checkpointData),
+    ]);
+});
+
+// Track when states complete
+$engine->onStateExit(function (string $stateName, mixed $output, float $duration) {
+    echo "[EXIT] State: {$stateName} (took {$duration}s)\n";
+    
+    // Record metrics
+    $this->metrics->timing("workflow.state.{$stateName}", $duration);
+});
+
+$result = $engine->run($input);
+```
+
+## Step 9: Complete Example - REST API Integration
+
+Here's a complete example showing API endpoints for managing approval workflows:
+
+```php
+<?php
+
+// POST /api/workflows - Start a workflow
+$app->post('/api/workflows', function (Request $request) {
+    $engine = $this->getWorkflowEngine();
+    $engine->setApprovalHandler(new DatabaseApprovalHandler($this->db));
+    
+    $result = $engine->run($request->getParsedBody());
+    
+    if ($result->isPaused()) {
+        $workflowId = $this->saveWorkflow($result);
+        return new JsonResponse([
+            'workflow_id' => $workflowId,
+            'status' => 'pending_approval',
+            'pending' => $result->getPendingInput(),
+        ], 202);
+    }
+    
+    return new JsonResponse([
+        'status' => 'completed',
+        'output' => $result->getOutput(),
+    ]);
+});
+
+// GET /api/workflows/{id}/pending - Get pending approval
+$app->get('/api/workflows/{id}/pending', function (Request $request, $id) {
+    $workflow = $this->loadWorkflow($id);
+    
+    return new JsonResponse([
+        'state' => $workflow['paused_at_state'],
+        'prompt' => $workflow['pending_input']['prompt'],
+        'options' => $workflow['pending_input']['options'],
+        'editable' => $workflow['pending_input']['editable'] ?? null,
+    ]);
+});
+
+// POST /api/workflows/{id}/approve - Submit approval decision
+$app->post('/api/workflows/{id}/approve', function (Request $request, $id) {
+    $workflow = $this->loadWorkflow($id);
+    $body = $request->getParsedBody();
+    
+    $engine = $this->getWorkflowEngine();
+    
+    $result = $engine->run(
+        $workflow['checkpoint_data'],
+        $workflow['paused_at_state'],
+        [
+            'approval' => $body['decision'],
+            'approver' => $request->getAttribute('user_email'),
+            'comment' => $body['comment'] ?? null,
+            'edited_content' => $body['edited_content'] ?? null,
+            'timestamp' => date('c'),
+        ]
+    );
+    
+    if ($result->isPaused()) {
+        $this->updateWorkflow($id, $result);
+        return new JsonResponse([
+            'status' => 'pending_approval',
+            'pending' => $result->getPendingInput(),
+        ], 202);
+    }
+    
+    $this->deleteWorkflow($id);
+    return new JsonResponse([
+        'status' => 'completed',
+        'output' => $result->getOutput(),
+    ]);
+});
+```
+
+## Simulating Approvals (Testing)
+
+For testing, create a synchronous approval handler that auto-approves:
+
+```php
+<?php
+
+use AgentStateLanguage\Handlers\ApprovalHandlerInterface;
+
+class MockApprovalHandler implements ApprovalHandlerInterface
 {
     private array $decisions = [];
     
@@ -432,22 +735,37 @@ class MockApprovalProvider
         $this->decisions[$stateName] = $decision;
     }
     
-    public function getDecision(string $stateName): ?array
+    public function requestApproval(array $request): ?array
     {
-        return $this->decisions[$stateName] ?? null;
+        $stateName = $request['state'];
+        
+        // Return pre-configured decision if available
+        if (isset($this->decisions[$stateName])) {
+            return $this->decisions[$stateName];
+        }
+        
+        // Auto-approve for testing (not recommended for production!)
+        return [
+            'approval' => $request['options'][0] ?? 'approve',
+            'approver' => 'test-user@example.com',
+            'timestamp' => date('c'),
+        ];
     }
 }
 
 // Usage in tests
-$mockApproval = new MockApprovalProvider();
-$mockApproval->setDecision('ReviewContent', [
-    'decision' => 'approve',
+$mockHandler = new MockApprovalHandler();
+$mockHandler->setDecision('ReviewContent', [
+    'approval' => 'approve',
     'approver' => 'editor@example.com',
-    'feedback' => 'Looks great!',
-    'timestamp' => date('c')
+    'comment' => 'Looks great!',
 ]);
 
-// The engine would use this provider to auto-resolve approval states
+$engine->setApprovalHandler($mockHandler);
+$result = $engine->run($input);
+
+// Workflow completes without pausing
+assert($result->isSuccess());
 ```
 
 ## Expected Output

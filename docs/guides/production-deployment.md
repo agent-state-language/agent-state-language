@@ -183,6 +183,122 @@ Configure memory backend for production:
 }
 ```
 
+## Pause/Resume Workflows
+
+For human-in-the-loop workflows that pause and wait for input.
+
+### Handling Paused Workflows
+
+```php
+<?php
+
+$result = $engine->run($input);
+
+if ($result->isPaused()) {
+    // Save workflow state for later resumption
+    $this->saveWorkflowState([
+        'id' => uniqid('wf_'),
+        'paused_at' => $result->getPausedAtState(),
+        'checkpoint' => $result->getCheckpointData(),
+        'pending' => $result->getPendingInput(),
+        'created_at' => date('c'),
+    ]);
+    
+    // Return pending status to client
+    return ['status' => 'pending_approval'];
+}
+```
+
+### Resuming Workflows
+
+```php
+<?php
+
+// Load saved state
+$saved = $this->loadWorkflowState($workflowId);
+
+// Resume with human decision
+$result = $engine->run(
+    $saved['checkpoint'],      // Original input data
+    $saved['paused_at'],       // State to resume from
+    [                          // Human's decision
+        'approval' => $decision,
+        'approver' => $userEmail,
+        'comment' => $comment,
+    ]
+);
+```
+
+### Production Approval Handler
+
+```php
+<?php
+
+use AgentStateLanguage\Handlers\ApprovalHandlerInterface;
+
+class ProductionApprovalHandler implements ApprovalHandlerInterface
+{
+    public function __construct(
+        private PDO $db,
+        private NotificationService $notifications,
+        private LoggerInterface $logger
+    ) {}
+    
+    public function requestApproval(array $request): ?array
+    {
+        // Log the approval request
+        $this->logger->info('Approval requested', [
+            'state' => $request['state'],
+            'prompt' => $request['prompt'],
+        ]);
+        
+        // Create database record
+        $requestId = $this->createApprovalRequest($request);
+        
+        // Send notifications
+        $this->notifications->sendApprovalRequest($requestId, $request);
+        
+        // Return null to pause workflow
+        return null;
+    }
+    
+    private function createApprovalRequest(array $request): string
+    {
+        $id = uniqid('apr_');
+        $stmt = $this->db->prepare(
+            'INSERT INTO approval_requests 
+             (id, state_name, prompt, options, created_at) 
+             VALUES (?, ?, ?, ?, NOW())'
+        );
+        $stmt->execute([
+            $id,
+            $request['state'],
+            $request['prompt'],
+            json_encode($request['options']),
+        ]);
+        return $id;
+    }
+}
+```
+
+### State Lifecycle Monitoring
+
+Track workflow progress with lifecycle callbacks:
+
+```php
+<?php
+
+$engine->onStateEnter(function (string $stateName, array $data) use ($metrics) {
+    $metrics->increment("workflow.state.{$stateName}.entered");
+    $metrics->gauge('workflow.current_state', $stateName);
+});
+
+$engine->onStateExit(function (string $stateName, mixed $output, float $duration) use ($metrics) {
+    $metrics->timing("workflow.state.{$stateName}.duration", $duration);
+    $metrics->increment("workflow.state.{$stateName}.completed");
+});
+```
+
 ## Health Checks
 
 ```php

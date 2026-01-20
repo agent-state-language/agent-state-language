@@ -382,7 +382,7 @@ Terminates execution with a failure.
 
 ## Approval State (Agent-Native)
 
-Pauses workflow for human approval.
+Pauses workflow for human approval. When an `ApprovalHandlerInterface` is configured, the workflow can pause and resume based on human decisions.
 
 ### Fields
 
@@ -393,9 +393,17 @@ Pauses workflow for human approval.
 | `Options` | array | No | Available choices (default: approve/reject) |
 | `Timeout` | string | No | Max wait time (e.g., "24h", "7d") |
 | `Escalation` | object | No | Escalation configuration |
+| `Editable` | object | No | Fields that can be edited during approval |
 | `ResultPath` | string | No | Where to store approval result |
 | `Next` | string | No | Next state after approval |
 | `Choices` | array | No | Route based on approval decision |
+
+### Editable Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Fields` | array | JSONPath expressions for editable fields |
+| `ResultPath` | string | Where to store edited content |
 
 ### Example
 
@@ -406,6 +414,10 @@ Pauses workflow for human approval.
     "Prompt": "Review the proposed code changes",
     "Options": ["approve", "reject", "request_changes"],
     "Timeout": "48h",
+    "Editable": {
+      "Fields": ["$.draft.title", "$.draft.content"],
+      "ResultPath": "$.editedDraft"
+    },
     "Escalation": {
       "After": "24h",
       "Notify": ["manager@example.com"]
@@ -417,6 +429,59 @@ Pauses workflow for human approval.
     "Default": "Cancelled"
   }
 }
+```
+
+### Approval Handler Integration
+
+To enable pause/resume functionality, implement `ApprovalHandlerInterface`:
+
+```php
+<?php
+
+use AgentStateLanguage\Handlers\ApprovalHandlerInterface;
+
+class MyApprovalHandler implements ApprovalHandlerInterface
+{
+    public function requestApproval(array $request): ?array
+    {
+        // Return null to pause workflow and wait for human input
+        // Return array with decision to continue immediately
+        return null;
+    }
+}
+
+// Configure the engine
+$engine->setApprovalHandler(new MyApprovalHandler());
+```
+
+### Workflow Result for Paused Approvals
+
+When the workflow pauses:
+
+```php
+$result = $engine->run($input);
+
+if ($result->isPaused()) {
+    $state = $result->getPausedAtState();       // "ReviewChanges"
+    $checkpoint = $result->getCheckpointData(); // Data to restore
+    $pending = $result->getPendingInput();      // Approval details
+}
+```
+
+### Resuming After Approval
+
+```php
+$result = $engine->run(
+    $checkpointData,    // Original state data
+    'ReviewChanges',    // State to resume from
+    [                   // Human's decision
+        'approval' => 'approve',
+        'approver' => 'user@example.com',
+        'comment' => 'Approved!',
+        'edited_content' => ['title' => 'New Title'],
+    ]
+);
+```
 ```
 
 ---

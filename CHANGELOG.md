@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-01-21
+
+### Added
+- Documentation for `ApprovalHandlerInterface` implementation
+- Documentation for workflow pause/resume patterns
+- Production deployment guide for human-in-the-loop workflows
+- REST API integration examples for approval workflows
+
+### Changed
+- Updated Tutorial 08 (Human Approval) with complete implementation examples
+- Updated state-types reference with Editable fields and handler integration
+- Updated production-deployment guide with lifecycle callbacks
+
 ## [0.3.0] - 2026-01-21
 
 ### Added
